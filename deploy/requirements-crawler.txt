@@ -1,0 +1,19 @@
+# Runtime dependencies for the CRAWLER (site_crawler.py), which re-scrapes the
+# live site and writes new snapshots into web_mirror/.
+#
+# This is a superset of requirements-server.txt — if you install this, you can
+# run both the crawler and the server from the same venv.
+#
+# Install:
+#   pip install -r deploy/requirements-crawler.txt
+#   playwright install firefox          # downloads the headless Firefox build
+#   playwright install-deps firefox     # (Debian/Ubuntu) installs OS libraries
+#                                        #  Firefox needs; may require sudo
+#
+# NOTE: the crawler drives a real headless browser (Playwright + Firefox). On a
+# headless server this needs the browser's shared libraries — see
+# `playwright install-deps`, or the apt list in the deployment doc.
+
+beautifulsoup4==4.14.3
+requests==2.34.2
+playwright==1.60.0

@@ -1,0 +1,21 @@
+# Runtime data — content-addressed blob store + dated snapshots.
+# This directory is operational data, not code. It lives outside git.
+web_mirror/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Operational logs (written by cron / manual runs)
+*.log
+crawl.log
+
+# Temp / editor artifacts
+*.swp
+*.swo
+*~
+.DS_Store

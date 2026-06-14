@@ -1,0 +1,43 @@
+# systemd unit for the Project Skyscraper wayback server.
+#
+# Install (as root):
+#   sudo cp deploy/wayback-server.service /etc/systemd/system/wayback-server.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wayback-server.service
+#
+# Assumes the code + data live in /archive/skyscraper and a venv exists at
+# /archive/skyscraper/.venv (see the deployment doc). Adjust paths if you chose
+# a different layout or use `uv run` instead of a venv (see commented ExecStart).
+
+[Unit]
+Description=Project Skyscraper Wayback Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=amit
+Group=amit
+WorkingDirectory=/archive/skyscraper
+# WORKSPACE_DIR is auto-derived from the script location, but we set it
+# explicitly so the service is unambiguous regardless of how it's launched.
+Environment=SKYSCRAPER_HOME=/archive/skyscraper
+
+# --- Primary: run with the project venv ---
+ExecStart=/archive/skyscraper/.venv/bin/python /archive/skyscraper/wayback_server.py --host 0.0.0.0 --port 8070
+
+# --- Alternative: run with uv (if you installed uv instead of a venv) ---
+# ExecStart=/usr/local/bin/uv run --project /archive/skyscraper wayback_server.py --host 0.0.0.0 --port 8070
+
+Restart=on-failure
+RestartSec=3
+
+# Light hardening (optional; the server only needs to read its own tree).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/archive/skyscraper
+
+[Install]
+WantedBy=multi-user.target

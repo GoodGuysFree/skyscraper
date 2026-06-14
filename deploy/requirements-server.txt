@@ -1,0 +1,10 @@
+# Runtime dependencies for the wayback SERVER (wayback_server.py).
+# Everything else it uses is in the Python 3.12 standard library
+# (http.server, json, urllib, etc.).
+#
+# Install into a venv, e.g.:
+#   python3 -m venv .venv && . .venv/bin/activate
+#   pip install -r deploy/requirements-server.txt
+
+beautifulsoup4==4.14.3
+# soupsieve is pulled in automatically by beautifulsoup4 (CSS selector support).
