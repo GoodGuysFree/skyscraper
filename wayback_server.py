@@ -392,7 +392,7 @@ class WaybackHandler(BaseHTTPRequestHandler):
             return
 
         # ── Date-routed page serving ──
-        match = re.match(r'^/@(\d{4}-\d{2}-\d{2})(/.*)$', path)
+        match = re.match(r'^/@(\d{4}-\d{2}-\d{2}(?:T\d{4})?)(/.*)$', path)
         if match:
             date = match.group(1)
             page_path = match.group(2)
