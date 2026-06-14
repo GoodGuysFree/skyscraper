@@ -804,10 +804,17 @@ class SiteCrawler:
     # ── Augment (add pagination pages to an existing snapshot) ───────────
 
     def augment(self):
-        """Fill gaps in today's existing snapshot by following on-site links
+        """Fill gaps in the most recent snapshot by following on-site links
         from the homepage, without overwriting already-crawled pages. Discovers
         pages the sitemap missed (pagination, archives, in-post links, etc.)."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        existing = sorted(
+            d for d in os.listdir(cfg.SNAPSHOT_DIR)
+            if os.path.isfile(os.path.join(cfg.SNAPSHOT_DIR, d, "manifest.json"))
+        ) if os.path.isdir(cfg.SNAPSHOT_DIR) else []
+        if not existing:
+            print("❌ No snapshots found. Run a full crawl first.")
+            return
+        today = existing[-1]
         snapshot_dir = os.path.join(cfg.SNAPSHOT_DIR, today)
         manifest_path = os.path.join(snapshot_dir, "manifest.json")
 
@@ -854,13 +861,14 @@ class SiteCrawler:
 
     def crawl(self):
         """Run a full site crawl."""
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc)
+        today = now.strftime("%Y-%m-%dT%H%M")
         snapshot_dir = os.path.join(cfg.SNAPSHOT_DIR, today)
 
-        # Check if we already crawled today
+        # Check if a snapshot with this exact timestamp already exists
         manifest_path = os.path.join(snapshot_dir, "manifest.json")
         if os.path.exists(manifest_path):
-            print(f"⚠ Snapshot for {today} already exists. Skipping.")
+            print(f"⚠ Snapshot {today} already exists. Skipping.")
             print(f"  Delete {snapshot_dir} to re-crawl.")
             return
 
@@ -868,8 +876,8 @@ class SiteCrawler:
         print()
 
         manifest = {
-            "date": today,
-            "crawled_at": datetime.now(timezone.utc).isoformat(),
+            "date": now.strftime("%Y-%m-%d"),
+            "crawled_at": now.isoformat(),
             "pages": {},
             "assets": {},
         }
@@ -1018,7 +1026,7 @@ def main():
     )
     parser.add_argument(
         "--augment", action="store_true",
-        help="Add newly-discovered pagination pages to today's existing snapshot"
+        help="Add newly-discovered pages to the most recent existing snapshot"
     )
     args = parser.parse_args()
 
