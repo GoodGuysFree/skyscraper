@@ -28,6 +28,9 @@ crawl.log
 # Environment file — holds ARCHIVE_PASSWORD and other runtime secrets.
 .env
 
+# Ekimo integration guide — contains coordination details, not for public repo.
+docs/plans/trigger-crawl-ekimo.md
+
 # Deployment/operations docs with infra details — repo is PUBLIC.
 DEPLOYMENT.md
 OPERATIONS.md
