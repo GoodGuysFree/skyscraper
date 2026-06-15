@@ -946,9 +946,9 @@ body {{ background: #0d0d0d; color: #e0e0e0;
        display: flex; justify-content: center; align-items: center;
        min-height: 100vh; margin: 0; padding-top: 26px; box-sizing: border-box; }}
 .box {{ text-align: center; max-width: 480px; padding: 40px 20px; }}
-h1 {{ font-size: 16px; color: #9ca3af; font-weight: normal; margin: 0 0 20px;
+h1 {{ font-size: 20px; color: #9ca3af; font-weight: normal; margin: 0 0 20px;
       letter-spacing: 0.1em; }}
-p {{ color: #555; font-size: 12px; line-height: 1.9; margin: 0 0 16px; }}
+p {{ color: #555; font-size: 14px; line-height: 1.9; margin: 0 0 16px; }}
 a {{ color: #7dd3fc; text-decoration: none; }}
 a:hover {{ color: #bae6fd; }}
 .path {{ color: #2e2e2e; font-size: 11px; margin-top: 24px; word-break: break-all; }}
