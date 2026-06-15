@@ -344,6 +344,56 @@ class ManifestCache:
 
 # ─── Navigation Overlay ─────────────────────────────────────────────────────
 
+def build_header_html(date: str, original_url: str) -> str:
+    """Thin fixed top bar: mirror notice, link to live page, snapshot date, GGF badge."""
+    try:
+        dt = datetime.strptime(date, "%Y-%m-%dT%H%M")
+        date_display = dt.strftime("%b %d, %Y · %H:%M UTC")
+    except ValueError:
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            date_display = dt.strftime("%b %d, %Y")
+        except ValueError:
+            date_display = date
+
+    live_domain = cfg.SITE_DOMAIN
+    return f"""<!-- ═══ WB HEADER ═══ -->
+<style>
+#wb-topbar {{
+  position: fixed; top: 0; left: 0; right: 0; z-index: 99998;
+  background: rgba(8,8,8,0.93); border-bottom: 1px solid #1e1e1e;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 11px; color: #666;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; height: 26px; gap: 10px; box-sizing: border-box;
+}}
+#wb-topbar a {{ color: #7dd3fc; text-decoration: none; }}
+#wb-topbar a:hover {{ color: #bae6fd; }}
+#wb-topbar .wb-tb-left {{ display: flex; align-items: center; gap: 8px; }}
+#wb-topbar .wb-tb-mirror {{
+  background: #1a1a1a; border: 1px solid #2a2a2a; color: #888;
+  padding: 1px 6px; font-size: 10px; letter-spacing: 0.08em;
+}}
+#wb-topbar .wb-tb-right {{ display: flex; align-items: center; gap: 10px; white-space: nowrap; }}
+#wb-topbar .wb-tb-ggf {{
+  color: #444; font-size: 10px; letter-spacing: 0.15em;
+  border-left: 1px solid #1e1e1e; padding-left: 10px;
+}}
+</style>
+<div id="wb-topbar">
+  <div class="wb-tb-left">
+    <span class="wb-tb-mirror">MIRROR</span>
+    <a href="{original_url}" target="_blank" rel="noopener noreferrer">{live_domain} ↗</a>
+  </div>
+  <div class="wb-tb-right">
+    <span>Snapshot: {date_display}</span>
+    <span class="wb-tb-ggf">GGF</span>
+  </div>
+</div>
+<!-- ═══ END WB HEADER ═══ -->"""
+
+
 def build_overlay_html(current_date: str, manifests,
                        changes: dict | None, current_path: str) -> str:
     """Build the floating navigation overlay injected into every HTML page."""
@@ -518,6 +568,10 @@ class WaybackHandler(BaseHTTPRequestHandler):
         token = _token_for(WaybackHandler.gate_password)
         return f"{_GATE_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/"
 
+    def do_HEAD(self):
+        self._head_only = True
+        self.do_GET()
+
     def do_POST(self):
         path = unquote(self.path)
         if path != "/~gate":
@@ -646,6 +700,16 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html, date, self.manifests.get_asset_by_path(date)
         )
 
+        # Inject top header bar after <body>
+        original_url = page_data.get("original_url", cfg.SITE_ORIGIN + page_path)
+        header = build_header_html(date, original_url)
+        body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
+        if body_tag:
+            end = body_tag.end()
+            html = html[:end] + "\n" + header + html[end:]
+        else:
+            html = header + html
+
         # Inject navigation overlay before </body>
         changes = self.manifests.get_changes(date)
         overlay = build_overlay_html(
@@ -681,7 +745,8 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # Content-addressed = immutable = cache forever
         self.send_header("Cache-Control", "public, max-age=31536000, immutable")
         self.end_headers()
-        self.wfile.write(data)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(data)
 
     def _handle_api(self, path: str):
         if path == "/~api/dates":
@@ -751,7 +816,8 @@ a {{ color: #7dd3fc; }}
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(body)
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
