@@ -558,7 +558,7 @@ def build_overlay_html(current_date: str, manifests,
     if (href.startsWith('/@') || href.startsWith('/_assets') ||
         href.startsWith('#') || href.startsWith('mailto:') ||
         href.startsWith('javascript:')) return;
-    if (/^https?:\/\//.test(href)) {{
+    if (/^https?:\\/\\//.test(href)) {{
       try {{
         var u = new URL(href);
         if (u.hostname !== '{cfg.SITE_DOMAIN}' &&
