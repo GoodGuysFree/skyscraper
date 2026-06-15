@@ -32,16 +32,16 @@ already-unlocked HTML and the server serves blobs directly with no gate:
 - [ ] Re-crawl after the schema change so existing snapshots carry the flag
       (old snapshots predate it; server must tolerate its absence).
 
-## Secrets out of source (enables a public GitHub repo)
+## Secrets out of source
 
-- [ ] Move `PAGE_PASSWORD` out of `crawler_config.py` into an env var
-      (e.g. `SKYSCRAPER_PAGE_PASSWORD`) or an untracked secrets file, with a
-      safe fallback/error if unset. Until then the GitHub repo **must be
-      private** (plaintext credential).
+- [x] `PAGE_PASSWORD = "EMILY"` is intentionally in source — it is the public
+      answer to the site's ARG riddle, not a real credential. Repo is public.
+      (See `OPERATIONS.local.md` §Secrets posture for full rationale.)
+- [x] `ARCHIVE_PASSWORD` (visitor gate) lives in `.env`, gitignored. ✓
 
 ## Deploy via GitHub
 
-- [x] Decided 2026-06-14: use a **private** GitHub repo as the deploy channel
-      (push from dev → `git pull` on the VPS → `systemctl restart`).
-      Data (`web_mirror/`) stays out of git.
-- [ ] Create the private repo and add it as `origin`.
+- [x] Decided 2026-06-14: use a **public** GitHub repo (`GoodGuysFree/skyscraper`)
+      as the deploy channel (push from dev → `git pull` on VPS → `systemctl restart`).
+      Data (`web_mirror/`) stays out of git. `DEPLOYMENT.md` scrubbed from history.
+- [x] Repo created, remote set as `origin`, VPS pulls on deploy. ✓

@@ -39,12 +39,12 @@ The only correct way to write a blob is via `BlobStore.put_bytes()` / `BlobStore
 
 ## Snapshot immutability
 
-A snapshot for a given date is written once by the crawler. After the crawl completes:
-- `manifest.json` must not be overwritten except by `--augment` mode (which adds missing pages to the *current day's* in-progress snapshot).
+A snapshot is written once by the crawler. After the crawl completes:
+- `manifest.json` must not be overwritten except by `--augment` mode (which adds missing pages to the *most recent existing* snapshot without re-crawling).
 - `changes.json` must not be modified after the crawl finishes.
-- The snapshot directory name is `YYYY-MM-DD` in UTC (derived from system clock at crawl start).
+- The snapshot directory name is `YYYY-MM-DDTHHMM` in UTC (derived from system clock at crawl start). Old snapshots named `YYYY-MM-DD` are also valid — the server accepts both.
 
-Do not back-fill old dates unless you understand the manifest diff chain.
+Do not back-fill old snapshots unless you understand the manifest diff chain.
 
 ---
 
@@ -77,7 +77,7 @@ Any change to this schema must be backwards-compatible: the server reads every s
 - **Not concurrency-safe.** Run only one crawler instance at a time. A cron job that overlaps itself will corrupt the in-progress snapshot.
 - **Browser is required for assets.** The live host returns HTTP 429 to non-browser asset requests. Do not replace the Playwright response-listener with a plain `requests` download loop.
 - **Request delay.** `REQUEST_DELAY_SECONDS` (default 1.5 s) controls politeness. Do not lower it below 1.0 without understanding the 429 rate-limit behavior.
-- **Page password.** `PAGE_PASSWORD = "EMILY"` in `crawler_config.py` unlocks password-protected posts. This is a plaintext credential — do not log it, print it in error messages, or surface it in server responses.
+- **Page password.** `PAGE_PASSWORD = "EMILY"` in `crawler_config.py` unlocks password-protected posts. This is the public answer to the site's ARG riddle (documented in `OPERATIONS.local.md` §Secrets posture) — not a real credential. Do not log it or surface it in server responses anyway.
 
 ---
 
@@ -99,15 +99,21 @@ __pycache__/
 *.pyc
 crawl.log            # operational log written by cron
 *.log
+.env                 # runtime secrets (ARCHIVE_PASSWORD) — never in git
+DEPLOYMENT.md        # infra topology / server details — gitignored
+OPERATIONS.md        # same
+*.local.md           # any local-only ops docs
 ```
 
-Commit: `site_crawler.py`, `wayback_server.py`, `crawler_config.py`, `deploy/`, `DEPLOYMENT.md`, `CLAUDE.md`, `.gitignore`.
+Commit: `site_crawler.py`, `wayback_server.py`, `crawler_config.py`, `deploy/`, `CLAUDE.md`, `TODO.md`, `.gitignore`.
 
 ---
 
 ## Security
 
-- The server binds `0.0.0.0:8070` in production (systemd unit). This exposes the archive to the whole LAN. If that's too broad, bind `127.0.0.1` and use an SSH tunnel or reverse proxy with auth.
+- **Production (VPS):** server binds `127.0.0.1:8070`; public access is via Caddy (TLS, port 443). Do not expose 8070 directly.
+- **Local/dev:** server may bind `0.0.0.0:8070` for LAN access. Keep to trusted networks.
+- **Front-page gate:** `GATE_MODE = "password"` in `crawler_config.py` (default). Password read from `.env` → `ARCHIVE_PASSWORD`. Never commit `.env`.
 - `PAGE_PASSWORD` must not appear in logs, HTTP responses, or error messages.
 - The systemd unit applies light sandboxing (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`). Do not weaken these without a reason.
 
