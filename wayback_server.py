@@ -376,18 +376,20 @@ def build_header_html(date: str, original_url: str) -> str:
   padding: 1px 6px; font-size: 10px; letter-spacing: 0.08em;
 }}
 #wb-topbar .wb-tb-right {{ display: flex; align-items: center; gap: 10px; white-space: nowrap; }}
+#wb-topbar .wb-tb-sep {{ color: #2e2e2e; }}
+#wb-topbar strong {{ color: #9ca3af; font-weight: normal; }}
 #wb-topbar .wb-tb-ggf {{
-  color: #444; font-size: 10px; letter-spacing: 0.15em;
+  color: #333; font-size: 10px; letter-spacing: 0.15em;
   border-left: 1px solid #1e1e1e; padding-left: 10px;
 }}
 </style>
 <div id="wb-topbar">
   <div class="wb-tb-left">
-    <span class="wb-tb-mirror">MIRROR</span>
-    <a href="{original_url}" target="_blank" rel="noopener noreferrer">{live_domain} ↗</a>
+    <span>This is a mirror of <a href="{cfg.SITE_ORIGIN}" target="_blank" rel="noopener noreferrer">https://{live_domain}</a></span>
+    <span class="wb-tb-sep">·</span>
+    <span>Now viewing snapshot: <strong>{date_display}</strong></span>
   </div>
   <div class="wb-tb-right">
-    <span>Snapshot: {date_display}</span>
     <span class="wb-tb-ggf">GGF</span>
   </div>
 </div>
