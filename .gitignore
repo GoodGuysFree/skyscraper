@@ -27,3 +27,7 @@ crawl.log
 
 # Environment file — holds ARCHIVE_PASSWORD and other runtime secrets.
 .env
+
+# Deployment/operations docs with infra details — repo is PUBLIC.
+DEPLOYMENT.md
+OPERATIONS.md
