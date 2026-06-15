@@ -430,7 +430,7 @@ def build_overlay_html(current_date: str, manifests,
 <div id="wb-overlay" class="wb-collapsed">
 <style>
 #wb-overlay {{
-  position: fixed; top: 12px; right: 12px; z-index: 999999;
+  position: fixed; top: 38px; right: 12px; z-index: 999999;
   font-family: 'IBM Plex Mono', 'Courier New', monospace;
   font-size: 12px; line-height: 1.4;
   color: #e0e0e0; background: rgba(10, 10, 10, 0.92);
