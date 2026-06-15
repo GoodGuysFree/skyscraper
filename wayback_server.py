@@ -411,133 +411,164 @@ def build_overlay_html(current_date: str, manifests,
     prev_date = dates[date_idx - 1] if date_idx > 0 else ""
     next_date = dates[date_idx + 1] if date_idx < len(dates) - 1 else ""
 
-    # Change indicator
-    change_class = ""
-    change_tooltip = ""
+    # Change indicator dot for current page on current snapshot
+    dot_class = ""
+    dot_title = ""
     if changes:
-        added = changes.get("pages_added", [])
-        modified = changes.get("pages_modified", [])
-        if current_path in added:
-            change_class = "wb-new"
-            change_tooltip = "New page on this date"
-        elif current_path in modified:
-            change_class = "wb-modified"
-            change_tooltip = "Modified on this date"
+        if current_path in changes.get("pages_added", []):
+            dot_class = "wb-new"
+            dot_title = "New on this snapshot"
+        elif current_path in changes.get("pages_modified", []):
+            dot_class = "wb-modified"
+            dot_title = "Modified on this snapshot"
+    dot_html = f'<span class="wb-dot {dot_class}" title="{dot_title}"></span>' if dot_class else ""
 
-    dates_json = json.dumps(dates)
     summary = changes.get("summary", "") if changes else "First snapshot"
+    dates_json = json.dumps(dates)
+
+    # Picker rows — newest first so current is near the top
+    rows = []
+    for d in reversed(dates):
+        is_cur = d == current_date
+        cls = "wb-row wb-row-current" if is_cur else "wb-row"
+        now_badge = '<span class="wb-now">now</span>' if is_cur else ""
+        rows.append(f'<div class="{cls}" onclick="wbNav(\'{d}\')">'
+                    f'<span>{get_display(d)}</span>{now_badge}</div>')
+    rows_html = "\n        ".join(rows)
+
+    dis_prev = "disabled" if not prev_date else ""
+    dis_next = "disabled" if not next_date else ""
 
     return f"""
 <!-- ═══ WAYBACK MACHINE OVERLAY ═══ -->
-<div id="wb-overlay" class="wb-collapsed">
+<div id="wb-overlay">
 <style>
 #wb-overlay {{
   position: fixed; top: 38px; right: 12px; z-index: 999999;
   font-family: 'IBM Plex Mono', 'Courier New', monospace;
-  font-size: 12px; line-height: 1.4;
-  color: #e0e0e0; background: rgba(10, 10, 10, 0.92);
-  border: 1px solid #333; border-radius: 6px;
+  font-size: 12px; color: #e0e0e0; user-select: none;
+}}
+.wb-panel {{
+  background: rgba(10,10,10,0.93); border: 1px solid #333; border-radius: 6px;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  padding: 10px 14px;
-  max-width: 360px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.6);
-  transition: all 0.25s ease;
-  user-select: none;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.65); padding: 8px 10px; min-width: 300px;
 }}
-#wb-overlay.wb-collapsed {{ padding: 6px 10px; max-width: 240px; }}
-#wb-overlay.wb-collapsed .wb-body {{ display: none; }}
-#wb-overlay .wb-header {{
-  display: flex; align-items: center; gap: 8px; cursor: pointer;
-  white-space: nowrap;
+.wb-nav {{ display: flex; align-items: center; gap: 6px; }}
+.wb-btn {{
+  background: #1e1e1e; border: 1px solid #3a3a3a; color: #999;
+  width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
+  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
 }}
-#wb-overlay .wb-header:hover {{ color: #fff; }}
-#wb-overlay .wb-logo {{
-  width: 14px; height: 14px; opacity: 0.7;
-  border: 1px solid #555; border-radius: 2px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 9px; flex-shrink: 0;
+.wb-btn:hover:not(:disabled) {{ background: #2a2a2a; color: #fff; border-color: #555; }}
+.wb-btn:disabled {{ opacity: 0.2; cursor: default; }}
+.wb-picker {{ position: relative; flex: 1; }}
+.wb-picker-btn {{
+  width: 100%; background: #181818; border: 1px solid #3a3a3a; color: #ddd;
+  padding: 5px 10px; border-radius: 4px; cursor: pointer;
+  font-family: inherit; font-size: 11px; text-align: left;
+  display: flex; align-items: center; gap: 6px;
+  transition: background 0.12s, border-color 0.12s;
 }}
-#wb-overlay .wb-date-display {{ font-weight: 600; letter-spacing: 0.5px; }}
-#wb-overlay .wb-indicator {{
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+.wb-picker-btn:hover {{ background: #222; border-color: #555; }}
+.wb-picker-btn.wb-open {{ background: #222; border-color: #555; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }}
+.wb-caret {{ margin-left: auto; opacity: 0.4; font-size: 9px; padding-left: 4px; }}
+.wb-dot {{ width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }}
+.wb-dot.wb-new {{ background: #4ade80; box-shadow: 0 0 5px #4ade80; }}
+.wb-dot.wb-modified {{ background: #fbbf24; box-shadow: 0 0 5px #fbbf24; }}
+.wb-list {{
+  display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
+  background: #0e0e0e; border: 1px solid #333; border-top: none;
+  border-bottom-left-radius: 4px; border-bottom-right-radius: 4px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.75);
+  max-height: 230px; overflow-y: auto;
 }}
-#wb-overlay .wb-indicator.wb-new {{ background: #4ade80; box-shadow: 0 0 6px #4ade80; }}
-#wb-overlay .wb-indicator.wb-modified {{ background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }}
-#wb-overlay .wb-body {{ margin-top: 10px; }}
-#wb-overlay .wb-nav {{
-  display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+.wb-list.wb-open {{ display: block; }}
+.wb-row {{
+  padding: 6px 10px; cursor: pointer; font-size: 11px;
+  border-bottom: 1px solid #191919;
+  display: flex; align-items: center; justify-content: space-between;
+  color: #999; transition: background 0.1s, color 0.1s;
 }}
-#wb-overlay .wb-btn {{
-  background: #222; border: 1px solid #444; color: #ccc;
-  padding: 3px 8px; border-radius: 3px; cursor: pointer;
-  font-family: inherit; font-size: 11px;
-  transition: all 0.15s;
+.wb-row:last-child {{ border-bottom: none; }}
+.wb-row:hover {{ background: #1c1c1c; color: #eee; }}
+.wb-row-current {{ background: #0b1a0b; color: #c8e6c8; }}
+.wb-row-current:hover {{ background: #0f200f; color: #e0f0e0; }}
+.wb-now {{
+  font-size: 9px; color: #4ade80; border: 1px solid #2d6a2d;
+  padding: 1px 5px; border-radius: 3px; letter-spacing: 0.05em;
 }}
-#wb-overlay .wb-btn:hover {{ background: #333; color: #fff; border-color: #666; }}
-#wb-overlay .wb-btn:disabled {{ opacity: 0.3; cursor: default; }}
-#wb-overlay .wb-select {{
-  background: #1a1a1a; border: 1px solid #444; color: #e0e0e0;
-  padding: 3px 6px; border-radius: 3px;
-  font-family: inherit; font-size: 11px;
-  flex: 1; max-width: 180px;
+.wb-summary {{
+  margin-top: 6px; padding-top: 5px; border-top: 1px solid #1c1c1c;
+  color: #4a4a4a; font-size: 10px;
 }}
-#wb-overlay .wb-summary {{
-  color: #888; font-size: 10px; border-top: 1px solid #2a2a2a;
-  padding-top: 6px; margin-top: 4px;
-}}
-#wb-overlay .wb-summary a {{ color: #7dd3fc; text-decoration: none; }}
-#wb-overlay .wb-summary a:hover {{ text-decoration: underline; }}
 </style>
-<div class="wb-header" onclick="document.getElementById('wb-overlay').classList.toggle('wb-collapsed')">
-  <span class="wb-logo">⟲</span>
-  <span class="wb-date-display">{get_display(current_date)}</span>
-  <span class="wb-indicator {change_class}" title="{change_tooltip}"></span>
-</div>
-<div class="wb-body">
+<div class="wb-panel">
   <div class="wb-nav">
-    <button class="wb-btn" id="wb-prev" {"disabled" if not prev_date else ""} onclick="wbNav('{prev_date}')">◀</button>
-    <select class="wb-select" id="wb-date-select" onchange="wbNav(this.value)">
-      {"".join(f'<option value="{d}" {"selected" if d == current_date else ""}>{get_display(d)}</option>' for d in dates)}
-    </select>
-    <button class="wb-btn" id="wb-next" {"disabled" if not next_date else ""} onclick="wbNav('{next_date}')">▶</button>
+    <button class="wb-btn" {dis_prev} onclick="wbNav('{prev_date}')">◀</button>
+    <div class="wb-picker" id="wb-picker">
+      <button class="wb-picker-btn" id="wb-picker-btn" onclick="wbToggle(event)">
+        {dot_html}<span>{get_display(current_date)}</span><span class="wb-caret">▾</span>
+      </button>
+      <div class="wb-list" id="wb-list">
+        {rows_html}
+      </div>
+    </div>
+    <button class="wb-btn" {dis_next} onclick="wbNav('{next_date}')">▶</button>
   </div>
   <div class="wb-summary">{summary}</div>
 </div>
 <script>
 (function() {{
   var currentDate = "{current_date}";
-  var dates = {dates_json};
   var currentPath = "{current_path}";
 
   window.wbNav = function(date) {{
     if (date) window.location.href = "/@" + date + currentPath;
   }};
 
-  // Intercept internal page links — maintain date context
-  document.addEventListener("click", function(e) {{
-    var link = e.target.closest("a");
-    if (!link) return;
-    var href = link.getAttribute("href");
-    if (!href) return;
-
-    // Skip already-rewritten links, blob links, external links, anchors
-    if (href.startsWith("/@") || href.startsWith("/_assets") ||
-        href.startsWith("#") || href.startsWith("mailto:") ||
-        href.startsWith("javascript:")) return;
-
-    // Skip external URLs
-    if (href.match(/^https?:\\/\\//)) {{
-      var url = new URL(href);
-      if (url.hostname !== "{cfg.SITE_DOMAIN}" &&
-          url.hostname !== "www.{cfg.SITE_DOMAIN}") return;
-      // It's an internal absolute URL — extract the path
-      href = url.pathname;
+  window.wbToggle = function(e) {{
+    e.stopPropagation();
+    var btn = document.getElementById('wb-picker-btn');
+    var list = document.getElementById('wb-list');
+    var open = list.classList.contains('wb-open');
+    list.classList.toggle('wb-open', !open);
+    btn.classList.toggle('wb-open', !open);
+    if (!open) {{
+      var cur = list.querySelector('.wb-row-current');
+      if (cur) cur.scrollIntoView({{block: 'nearest'}});
     }}
+  }};
 
-    // Internal link — prepend date
-    if (href.startsWith("/")) {{
+  document.addEventListener('click', function(e) {{
+    var picker = document.getElementById('wb-picker');
+    if (picker && !picker.contains(e.target)) {{
+      document.getElementById('wb-list').classList.remove('wb-open');
+      document.getElementById('wb-picker-btn').classList.remove('wb-open');
+    }}
+  }});
+
+  // Intercept internal page links — maintain date context
+  document.addEventListener('click', function(e) {{
+    var link = e.target.closest('a');
+    if (!link) return;
+    var href = link.getAttribute('href');
+    if (!href) return;
+    if (href.startsWith('/@') || href.startsWith('/_assets') ||
+        href.startsWith('#') || href.startsWith('mailto:') ||
+        href.startsWith('javascript:')) return;
+    if (/^https?:\/\//.test(href)) {{
+      try {{
+        var u = new URL(href);
+        if (u.hostname !== '{cfg.SITE_DOMAIN}' &&
+            u.hostname !== 'www.{cfg.SITE_DOMAIN}') return;
+        href = u.pathname;
+      }} catch(e) {{ return; }}
+    }}
+    if (href.startsWith('/')) {{
       e.preventDefault();
-      window.location.href = "/@" + currentDate + href;
+      window.location.href = '/@' + currentDate + href;
     }}
   }});
 }})();
