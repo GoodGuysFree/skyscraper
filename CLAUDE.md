@@ -119,6 +119,21 @@ Commit: `site_crawler.py`, `wayback_server.py`, `crawler_config.py`, `deploy/`, 
 
 ---
 
+## Testing
+
+Unit tests live in `tests/` and are run with:
+```bash
+python3 -m pytest tests/ -v
+```
+
+**Rules:**
+- Any change to `wayback_server.py` or `site_crawler.py` must be accompanied by new or updated tests covering the changed logic.
+- **Run tests before marking a task complete.** If tests fail, fix them first.
+- **Run tests before deploying to the VPS.** No deploy with a red test suite.
+- Tests must not make network requests or launch a browser. Use `tmp_path` fixtures and in-memory fakes for file I/O.
+
+---
+
 ## Operations quick-reference
 
 ```bash
