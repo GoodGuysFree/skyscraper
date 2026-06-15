@@ -135,6 +135,19 @@ class TestBuildLandingPage:
         html = ws._build_landing_page()
         assert "GoodGuysFree" in html
 
+    def test_authenticated_shows_direct_enter_link(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "password")
+        html = ws._build_landing_page(authenticated=True, latest_date="2026-06-15T0330")
+        assert "/@2026-06-15T0330/" in html
+        assert 'type="password"' not in html
+        assert 'action="/~gate"' not in html
+
+    def test_authenticated_no_latest_date_ignored(self, monkeypatch):
+        """authenticated=True with no latest_date falls back to unauthenticated form."""
+        monkeypatch.setattr(cfg, "GATE_MODE", "password")
+        html = ws._build_landing_page(authenticated=True, latest_date="")
+        assert 'type="password"' in html
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4.  build_header_html  — thin fixed top bar
@@ -181,6 +194,24 @@ class TestBuildHeaderHtml:
     def test_time_formatting_parametrized(self, date, expected_time):
         html = ws.build_header_html(date, "https://example.com/")
         assert expected_time in html
+
+    def test_no_status_badge_when_none(self):
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/")
+        assert "Page status" not in html
+        # The CSS rule exists but no <span class="wb-tb-status" ...> element
+        assert 'class="wb-tb-status"' not in html
+
+    @pytest.mark.parametrize("status,expected_text", [
+        ("new",             "NEW PAGE"),
+        ("changed",         "CHANGED"),
+        ("unchanged",       "UNCHANGED"),
+        ("not_in_snapshot", "NOT IN SNAPSHOT"),
+    ])
+    def test_page_status_badge_text(self, status, expected_text):
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/", status)
+        assert "Page status" in html
+        assert expected_text in html
+        assert "wb-tb-status" in html
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -399,19 +430,32 @@ class TestBuildOverlayHtml:
         )
         assert "First snapshot" in html
 
-    def test_new_page_dot_class(self, two_snapshot_cache):
-        changes = {"summary": "", "pages_added": ["/about/"], "pages_modified": []}
+    def test_no_dot_classes_in_overlay(self, two_snapshot_cache):
+        """Page status is shown in the topbar, not as dots in the overlay."""
+        changes = {"summary": "", "pages_added": ["/about/"], "pages_modified": ["/"]}
         html = ws.build_overlay_html(
             "2026-06-14T1137", two_snapshot_cache, changes, "/about/"
         )
-        assert "wb-new" in html
+        assert "wb-new" not in html
+        assert "wb-modified" not in html
 
-    def test_modified_page_dot_class(self, two_snapshot_cache):
-        changes = {"summary": "", "pages_added": [], "pages_modified": ["/"]}
+    def test_picker_rows_have_summary_tooltip(self, two_snapshot_cache):
+        """Each picker row should carry a title= tooltip with that snapshot's summary."""
         html = ws.build_overlay_html(
-            "2026-06-14T1137", two_snapshot_cache, changes, "/"
+            "2026-06-14T1137", two_snapshot_cache, None, "/"
         )
-        assert "wb-modified" in html
+        # changes2 summary is "1 added, 1 modified"
+        assert 'title="1 added, 1 modified"' in html
+        # changes1 summary is "First snapshot"
+        assert 'title="First snapshot"' in html
+
+    def test_picker_rows_first_snapshot_tooltip(self, tmp_path):
+        """Snapshot with no changes.json gets 'First snapshot' tooltip."""
+        snap_dir = tmp_path / "snapshots"
+        _write_manifest(snap_dir, "2026-06-13T1754", _make_manifest())
+        cache = ws.ManifestCache(str(snap_dir))
+        html = ws.build_overlay_html("2026-06-13T1754", cache, None, "/")
+        assert 'title="First snapshot"' in html
 
     def test_crawled_at_time_in_picker(self, two_snapshot_cache):
         """Picker rows should show time from crawled_at, not just the date name."""
@@ -426,6 +470,74 @@ class TestBuildOverlayHtml:
             "2026-06-14T1137", two_snapshot_cache, None, "/"
         )
         assert "<script>" in html
+        assert "wbNav" in html
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6b. Page-missing response — friendly 404 with nav overlay
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPageMissingResponse:
+    """Test _serve_page_missing by driving WaybackHandler through a fake socket."""
+
+    def _make_handler(self, tmp_path) -> ws.WaybackHandler:
+        snap_dir = tmp_path / "snapshots"
+        m = _make_manifest(
+            pages={"/": {"blob": "aaa", "content_type": "text/html",
+                         "original_url": "https://project-skyscraper.com/", "title": "Home"}},
+            date="2026-06-14",
+            crawled_at="2026-06-14T11:37:00+00:00",
+        )
+        changes = {"summary": "1 added", "pages_added": ["/new/"],
+                   "pages_modified": [], "pages_removed": []}
+        _write_manifest(snap_dir, "2026-06-14T1137", m, changes=changes)
+        cache = ws.ManifestCache(str(snap_dir))
+
+        buf = []
+        handler = ws.WaybackHandler.__new__(ws.WaybackHandler)
+        handler.manifests = cache
+        handler.gate_password = ""
+        handler._head_only = False
+        handler.wfile = type("W", (), {"write": lambda self, b: buf.append(b)})()
+        handler._buf = buf
+
+        def respond(code, body, ct):
+            handler._last_code = code
+            handler._last_body = body
+            handler._last_ct = ct
+
+        handler._respond = respond
+        return handler
+
+    def test_missing_page_returns_404(self, tmp_path):
+        h = self._make_handler(tmp_path)
+        h._serve_page_missing("2026-06-14T1137", "/nonexistent/")
+        assert h._last_code == 404
+
+    def test_missing_page_html_contains_message(self, tmp_path):
+        h = self._make_handler(tmp_path)
+        h._serve_page_missing("2026-06-14T1137", "/nonexistent/")
+        html = h._last_body.decode("utf-8")
+        assert "PAGE NOT IN THIS SNAPSHOT" in html
+        assert "/nonexistent/" in html
+
+    def test_missing_page_has_front_page_link(self, tmp_path):
+        h = self._make_handler(tmp_path)
+        h._serve_page_missing("2026-06-14T1137", "/nonexistent/")
+        html = h._last_body.decode("utf-8")
+        assert "/@2026-06-14T1137/" in html
+
+    def test_missing_page_has_not_in_snapshot_status(self, tmp_path):
+        h = self._make_handler(tmp_path)
+        h._serve_page_missing("2026-06-14T1137", "/nonexistent/")
+        html = h._last_body.decode("utf-8")
+        assert "NOT IN SNAPSHOT" in html
+
+    def test_missing_page_has_nav_overlay(self, tmp_path):
+        h = self._make_handler(tmp_path)
+        h._serve_page_missing("2026-06-14T1137", "/nonexistent/")
+        html = h._last_body.decode("utf-8")
+        assert "wb-overlay" in html
         assert "wbNav" in html
 
 

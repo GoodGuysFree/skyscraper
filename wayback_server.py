@@ -159,9 +159,12 @@ class CrawlScheduler:
         sys.stdout.flush()
 
 
-def _build_landing_page(error: str = "") -> str:
+def _build_landing_page(error: str = "", latest_date: str = "",
+                        authenticated: bool = False) -> str:
     """Return the full HTML for the front-page gate / splash."""
-    if cfg.GATE_MODE == "password":
+    if authenticated and latest_date:
+        gate_html = f'<a class="enter-btn" href="/@{latest_date}/">Enter Archive →</a>'
+    elif cfg.GATE_MODE == "password":
         error_html = f'<p class="error">{error}</p>' if error else ""
         gate_html = f"""\
       {error_html}
@@ -185,7 +188,7 @@ def _build_landing_page(error: str = "") -> str:
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
       background: #0d0d0d;
-      color: #c0c0c0;
+      color: #c8c8c8;
       font-family: 'IBM Plex Mono', 'Courier New', monospace;
       min-height: 100vh;
       display: flex;
@@ -197,37 +200,45 @@ def _build_landing_page(error: str = "") -> str:
     .card {{
       max-width: 660px;
       width: 100%;
-      border: 1px solid #222;
+      border: 1px solid #2a2a2a;
       background: #111;
       padding: 3rem 3.5rem;
     }}
-    .logo {{ font-size: 0.7rem; color: #444; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 0.4rem; }}
-    h1 {{ font-size: 1.5rem; color: #e8e8e8; letter-spacing: 0.06em; margin-bottom: 0.25rem; }}
-    .tagline {{ font-size: 0.75rem; color: #444; margin-bottom: 3rem; }}
+    .logo {{ font-size: 0.75rem; color: #666; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 0.4rem; }}
+    h1 {{ font-size: 1.75rem; color: #f0f0f0; letter-spacing: 0.06em; margin-bottom: 0.25rem; }}
+    .tagline {{ font-size: 0.82rem; color: #555; margin-bottom: 3rem; }}
     .section {{ margin-bottom: 1.8rem; }}
     .section-label {{
-      font-size: 0.65rem; color: #3a3a3a; text-transform: uppercase;
+      font-size: 0.7rem; color: #555; text-transform: uppercase;
       letter-spacing: 0.2em; margin-bottom: 0.5rem;
     }}
-    .section p {{ font-size: 0.82rem; color: #777; line-height: 1.75; }}
-    hr {{ border: none; border-top: 1px solid #1c1c1c; margin: 2.2rem 0; }}
+    .section p {{ font-size: 0.9rem; color: #888; line-height: 1.75; }}
+    hr {{ border: none; border-top: 1px solid #252525; margin: 2.2rem 0; }}
     .gate {{ text-align: center; }}
     input[type=password] {{
       display: block; width: 100%;
-      background: #0d0d0d; border: 1px solid #222; color: #c0c0c0;
-      padding: 0.65rem 1rem; font-family: inherit; font-size: 0.88rem;
+      background: #0d0d0d; border: 1px solid #2e2e2e; color: #c8c8c8;
+      padding: 0.7rem 1rem; font-family: inherit; font-size: 0.9rem;
       margin-bottom: 0.75rem; outline: none;
     }}
-    input[type=password]:focus {{ border-color: #3a3a3a; }}
+    input[type=password]:focus {{ border-color: #484848; }}
     button {{
       display: block; width: 100%;
-      background: #181818; border: 1px solid #2e2e2e; color: #bbb;
-      padding: 0.65rem 2rem; font-family: inherit; font-size: 0.82rem;
+      background: #1a1a1a; border: 1px solid #383838; color: #ccc;
+      padding: 0.7rem 2rem; font-family: inherit; font-size: 0.85rem;
       letter-spacing: 0.1em; cursor: pointer; text-transform: uppercase;
     }}
-    button:hover {{ background: #1e1e1e; border-color: #444; color: #e0e0e0; }}
-    .error {{ color: #c0504d; font-size: 0.78rem; margin-bottom: 0.75rem; }}
-    .footer {{ margin-top: 2rem; font-size: 0.65rem; color: #2a2a2a; text-align: center; }}
+    button:hover {{ background: #222; border-color: #555; color: #eee; }}
+    .enter-btn {{
+      display: block; width: 100%;
+      background: #1a1a1a; border: 1px solid #383838; color: #ccc;
+      padding: 0.7rem 2rem; font-family: inherit; font-size: 0.85rem;
+      letter-spacing: 0.1em; cursor: pointer; text-transform: uppercase;
+      text-decoration: none; text-align: center;
+    }}
+    .enter-btn:hover {{ background: #222; border-color: #555; color: #eee; }}
+    .error {{ color: #e05c5c; font-size: 0.82rem; margin-bottom: 0.75rem; }}
+    .footer {{ margin-top: 2rem; font-size: 0.68rem; color: #333; text-align: center; }}
   </style>
 </head>
 <body>
@@ -452,7 +463,16 @@ class ManifestCache:
 
 # ─── Navigation Overlay ─────────────────────────────────────────────────────
 
-def build_header_html(date: str, original_url: str) -> str:
+_PAGE_STATUS_BADGES: dict[str, tuple[str, str]] = {
+    "new":             ("NEW PAGE",         "#4ade80", "#0a1a0a", "#1a4a2a"),
+    "changed":         ("CHANGED",          "#fbbf24", "#1a1200", "#4a3a0a"),
+    "unchanged":       ("UNCHANGED",        "#3a3a3a", "transparent", "#2a2a2a"),
+    "not_in_snapshot": ("NOT IN SNAPSHOT",  "#f87171", "#1a0a0a", "#4a1a1a"),
+}
+
+
+def build_header_html(date: str, original_url: str,
+                      page_status: str | None = None) -> str:
     """Thin fixed top bar: mirror notice, link to live page, snapshot date, GGF badge."""
     try:
         dt = datetime.strptime(date, "%Y-%m-%dT%H%M")
@@ -465,6 +485,17 @@ def build_header_html(date: str, original_url: str) -> str:
             date_display = date
 
     live_domain = cfg.SITE_DOMAIN
+
+    status_html = ""
+    if page_status and page_status in _PAGE_STATUS_BADGES:
+        label, color, bg, border = _PAGE_STATUS_BADGES[page_status]
+        status_html = (
+            f'<span class="wb-tb-sep">·</span>'
+            f'<span>Page status: <span class="wb-tb-status" '
+            f'style="color:{color};background:{bg};border-color:{border}">'
+            f'{label}</span></span>'
+        )
+
     return f"""<!-- ═══ WB HEADER ═══ -->
 <style>
 #wb-topbar {{
@@ -490,12 +521,17 @@ def build_header_html(date: str, original_url: str) -> str:
   color: #333; font-size: 10px; letter-spacing: 0.15em;
   border-left: 1px solid #1e1e1e; padding-left: 10px;
 }}
+#wb-topbar .wb-tb-status {{
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  letter-spacing: 0.05em; border: 1px solid;
+}}
 </style>
 <div id="wb-topbar">
   <div class="wb-tb-left">
     <span>This is a mirror of <a href="{cfg.SITE_ORIGIN}" target="_blank" rel="noopener noreferrer">https://{live_domain}</a></span>
     <span class="wb-tb-sep">·</span>
     <span>Now viewing snapshot: <strong>{date_display}</strong></span>
+    {status_html}
   </div>
   <div class="wb-tb-right">
     <span class="wb-tb-ggf">GGF</span>
@@ -519,18 +555,6 @@ def build_overlay_html(current_date: str, manifests,
     prev_date = dates[date_idx - 1] if date_idx > 0 else ""
     next_date = dates[date_idx + 1] if date_idx < len(dates) - 1 else ""
 
-    # Change indicator dot for current page on current snapshot
-    dot_class = ""
-    dot_title = ""
-    if changes:
-        if current_path in changes.get("pages_added", []):
-            dot_class = "wb-new"
-            dot_title = "New on this snapshot"
-        elif current_path in changes.get("pages_modified", []):
-            dot_class = "wb-modified"
-            dot_title = "Modified on this snapshot"
-    dot_html = f'<span class="wb-dot {dot_class}" title="{dot_title}"></span>' if dot_class else ""
-
     summary = changes.get("summary", "") if changes else "First snapshot"
     dates_json = json.dumps(dates)
 
@@ -540,7 +564,9 @@ def build_overlay_html(current_date: str, manifests,
         is_cur = d == current_date
         cls = "wb-row wb-row-current" if is_cur else "wb-row"
         now_badge = '<span class="wb-now">now</span>' if is_cur else ""
-        rows.append(f'<div class="{cls}" onclick="wbNav(\'{d}\')">'
+        c = manifests.get_changes(d)
+        tooltip = c.get("summary", "") if c else "First snapshot"
+        rows.append(f'<div class="{cls}" title="{tooltip}" onclick="wbNav(\'{d}\')">'
                     f'<span>{get_display(d)}</span>{now_badge}</div>')
     rows_html = "\n        ".join(rows)
 
@@ -582,9 +608,6 @@ def build_overlay_html(current_date: str, manifests,
 .wb-picker-btn:hover {{ background: #222; border-color: #555; }}
 .wb-picker-btn.wb-open {{ background: #222; border-color: #555; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }}
 .wb-caret {{ margin-left: auto; opacity: 0.4; font-size: 9px; padding-left: 4px; }}
-.wb-dot {{ width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }}
-.wb-dot.wb-new {{ background: #4ade80; box-shadow: 0 0 5px #4ade80; }}
-.wb-dot.wb-modified {{ background: #fbbf24; box-shadow: 0 0 5px #fbbf24; }}
 .wb-list {{
   display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
   background: #0e0e0e; border: 1px solid #333; border-top: none;
@@ -617,7 +640,7 @@ def build_overlay_html(current_date: str, manifests,
     <button class="wb-btn" {dis_prev} onclick="wbNav('{prev_date}')">◀</button>
     <div class="wb-picker" id="wb-picker">
       <button class="wb-picker-btn" id="wb-picker-btn" onclick="wbToggle(event)">
-        {dot_html}<span>{get_display(current_date)}</span><span class="wb-caret">▾</span>
+        <span>{get_display(current_date)}</span><span class="wb-caret">▾</span>
       </button>
       <div class="wb-list" id="wb-list">
         {rows_html}
@@ -782,17 +805,17 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # Keep in sync with the crawler — pick up newly-added snapshots/pages.
         self.manifests.maybe_reload()
 
-        # ── Root → landing page (gate or splash) ──
+        # ── Root → always show landing page ──
         if path == "/" or path == "":
+            latest = self.manifests.latest_date or ""
             if self._is_authenticated():
-                latest = self.manifests.latest_date
-                if latest:
-                    self._redirect(f"/@{latest}/")
-                else:
+                if not latest:
                     self._error(503, "No snapshots available. Run site_crawler.py first.")
+                    return
+                body = _build_landing_page(authenticated=True, latest_date=latest)
             else:
                 body = _build_landing_page()
-                self._respond(200, body.encode("utf-8"), "text/html; charset=utf-8")
+            self._respond(200, body.encode("utf-8"), "text/html; charset=utf-8")
             return
 
         # ── Logout ──
@@ -855,7 +878,7 @@ class WaybackHandler(BaseHTTPRequestHandler):
                 page_data = pages.get(alt_path + "/")
 
         if not page_data:
-            self._error(404, f"Page not found: {page_path} (date: {date})")
+            self._serve_page_missing(date, page_path)
             return
 
         sha = page_data["blob"]
@@ -874,9 +897,21 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html, date, self.manifests.get_asset_by_path(date)
         )
 
+        # Compute page status from changes for the header badge.
+        changes = self.manifests.get_changes(date)
+        if changes:
+            if page_path in changes.get("pages_added", []):
+                page_status = "new"
+            elif page_path in changes.get("pages_modified", []):
+                page_status = "changed"
+            else:
+                page_status = "unchanged"
+        else:
+            page_status = None
+
         # Inject top header bar after <body>
         original_url = page_data.get("original_url", cfg.SITE_ORIGIN + page_path)
-        header = build_header_html(date, original_url)
+        header = build_header_html(date, original_url, page_status)
         body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
         if body_tag:
             end = body_tag.end()
@@ -885,7 +920,6 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html = header + html
 
         # Inject navigation overlay before </body>
-        changes = self.manifests.get_changes(date)
         overlay = build_overlay_html(
             date, self.manifests, changes, page_path
         )
@@ -897,6 +931,40 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html += overlay
 
         self._respond(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
+    def _serve_page_missing(self, date: str, page_path: str):
+        """Friendly 404 page when a path doesn't exist in the requested snapshot."""
+        front_url = f"/@{date}/"
+        header = build_header_html(date, cfg.SITE_ORIGIN + page_path, "not_in_snapshot")
+        changes = self.manifests.get_changes(date)
+        overlay = build_overlay_html(date, self.manifests, changes, page_path)
+        body = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Page not in snapshot</title>
+<style>
+body {{ background: #0d0d0d; color: #e0e0e0;
+       font-family: 'IBM Plex Mono', 'Courier New', monospace;
+       display: flex; justify-content: center; align-items: center;
+       min-height: 100vh; margin: 0; padding-top: 26px; box-sizing: border-box; }}
+.box {{ text-align: center; max-width: 480px; padding: 40px 20px; }}
+h1 {{ font-size: 16px; color: #9ca3af; font-weight: normal; margin: 0 0 20px;
+      letter-spacing: 0.1em; }}
+p {{ color: #555; font-size: 12px; line-height: 1.9; margin: 0 0 16px; }}
+a {{ color: #7dd3fc; text-decoration: none; }}
+a:hover {{ color: #bae6fd; }}
+.path {{ color: #2e2e2e; font-size: 11px; margin-top: 24px; word-break: break-all; }}
+</style>
+</head><body>
+{header}
+<div class="box">
+  <h1>PAGE NOT IN THIS SNAPSHOT</h1>
+  <p>This page didn't exist when this snapshot was taken.<br>
+     Use the date picker to find a snapshot that includes it,<br>
+     or <a href="{front_url}">go to the front page of this snapshot</a>.</p>
+  <p class="path">{page_path}</p>
+</div>
+{overlay}
+</body></html>"""
+        self._respond(404, body.encode("utf-8"), "text/html; charset=utf-8")
 
     def _serve_asset(self, path: str):
         # path: /_assets/ab/abcdef1234.jpg
