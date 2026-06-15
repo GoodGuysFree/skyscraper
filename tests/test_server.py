@@ -563,3 +563,131 @@ def test_date_route_rejects_no_slash_after_date():
     # "/@2026-06-14" with no trailing slash — the regex requires (/.*)
     m = DATE_ROUTE_RE.match("/@2026-06-14")
     assert m is None
+
+
+# ─── verify_trigger_signature ────────────────────────────────────────────────
+
+import hmac as _hmac
+import time as _time
+from wayback_server import verify_trigger_signature
+
+
+SECRET = "testsecret"
+
+
+def _make_sig(ts_str: str, body: str = "{}") -> str:
+    digest = _hmac.new(
+        SECRET.encode(), f"{ts_str}.{body}".encode(), hashlib.sha256
+    ).hexdigest()
+    return f"sha256={digest}"
+
+
+def test_trigger_sig_valid():
+    now = int(_time.time())
+    ts = str(now)
+    assert verify_trigger_signature(SECRET, ts, "{}", _make_sig(ts), now=now)
+
+
+def test_trigger_sig_wrong_secret():
+    now = int(_time.time())
+    ts = str(now)
+    sig = _make_sig(ts)
+    assert not verify_trigger_signature("wrongsecret", ts, "{}", sig, now=now)
+
+
+def test_trigger_sig_tampered_body():
+    now = int(_time.time())
+    ts = str(now)
+    sig = _make_sig(ts, "{}")
+    assert not verify_trigger_signature(SECRET, ts, '{"evil":1}', sig, now=now)
+
+
+def test_trigger_sig_stale_timestamp():
+    now = int(_time.time())
+    ts = str(now - 301)  # just outside the 300-second window
+    sig = _make_sig(ts)
+    assert not verify_trigger_signature(SECRET, ts, "{}", sig, now=now)
+
+
+def test_trigger_sig_future_timestamp():
+    now = int(_time.time())
+    ts = str(now + 301)
+    sig = _make_sig(ts)
+    assert not verify_trigger_signature(SECRET, ts, "{}", sig, now=now)
+
+
+def test_trigger_sig_boundary_timestamp():
+    now = int(_time.time())
+    ts = str(now - 300)  # exactly at the boundary — still valid
+    sig = _make_sig(ts)
+    assert verify_trigger_signature(SECRET, ts, "{}", sig, now=now)
+
+
+def test_trigger_sig_missing_timestamp():
+    assert not verify_trigger_signature(SECRET, "", "{}", "sha256=abc")
+
+
+def test_trigger_sig_non_integer_timestamp():
+    assert not verify_trigger_signature(SECRET, "notanint", "{}", "sha256=abc")
+
+
+def test_trigger_sig_empty_body():
+    now = int(_time.time())
+    ts = str(now)
+    sig = _make_sig(ts, "")
+    assert verify_trigger_signature(SECRET, ts, "", sig, now=now)
+
+
+# ─── CrawlScheduler ──────────────────────────────────────────────────────────
+
+import threading as _threading
+from unittest.mock import patch, MagicMock
+from wayback_server import CrawlScheduler
+import crawler_config as _cfg
+
+
+def test_scheduler_trigger_starts_debounce():
+    sched = CrawlScheduler()
+    with patch("wayback_server.threading") as mock_threading:
+        mock_timer = MagicMock()
+        mock_threading.Timer.return_value = mock_timer
+        sched.trigger()
+        mock_threading.Timer.assert_called_once_with(
+            _cfg.TRIGGER_DEBOUNCE_SECONDS, sched._debounce_fired
+        )
+        mock_timer.start.assert_called_once()
+
+
+def test_scheduler_rapid_triggers_reset_timer():
+    sched = CrawlScheduler()
+    with patch("wayback_server.threading") as mock_threading:
+        mock_timer = MagicMock()
+        mock_threading.Timer.return_value = mock_timer
+        sched.trigger()
+        sched.trigger()  # second trigger should cancel first timer
+        assert mock_timer.cancel.call_count == 1
+        assert mock_threading.Timer.call_count == 2
+
+
+def test_scheduler_trigger_while_running_sets_queued():
+    sched = CrawlScheduler()
+    sched._running = True
+    sched.trigger()
+    assert sched._queued is True
+
+
+def test_scheduler_multiple_triggers_while_running_only_one_queued():
+    sched = CrawlScheduler()
+    sched._running = True
+    sched.trigger()
+    sched.trigger()
+    sched.trigger()
+    assert sched._queued is True  # still just True, not a counter
+
+
+def test_scheduler_no_timer_started_while_running():
+    sched = CrawlScheduler()
+    sched._running = True
+    with patch("wayback_server.threading") as mock_threading:
+        sched.trigger()
+        mock_threading.Timer.assert_not_called()

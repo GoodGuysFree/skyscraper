@@ -147,6 +147,13 @@ SERVER_PORT = 8070
 #   "button"   — show a splash page with an "Enter Archive" button, no password
 GATE_MODE = "password"
 
-# Path to the environment file that supplies ARCHIVE_PASSWORD.
+# Path to the environment file that supplies ARCHIVE_PASSWORD and TRIGGER_TOKEN.
 # Never commit this file — it is git-ignored.
 GATE_ENV_FILE = os.path.join(WORKSPACE_DIR, ".env")
+
+# ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
+# Debounce: wait this many seconds after the last trigger before starting a crawl.
+# Coalesces rapid triggers into a single crawl.
+TRIGGER_DEBOUNCE_SECONDS = 180
+# Cooldown: mandatory rest after a crawl finishes before a queued crawl may start.
+TRIGGER_COOLDOWN_SECONDS = 300

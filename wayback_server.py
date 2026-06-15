@@ -14,7 +14,11 @@ import sys
 import json
 import argparse
 import re
+import hmac
 import hashlib
+import threading
+import subprocess
+import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from urllib.parse import unquote, urlparse, parse_qs
@@ -49,6 +53,110 @@ def _load_gate_password() -> str:
 
 def _token_for(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _load_trigger_token() -> str:
+    """Read TRIGGER_TOKEN from .env (never committed)."""
+    env_path = cfg.GATE_ENV_FILE
+    if not os.path.isfile(env_path):
+        return ""
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("TRIGGER_TOKEN="):
+                return line.partition("=")[2].strip()
+    return ""
+
+
+def verify_trigger_signature(secret: str, ts_str: str, body: str,
+                              sig_header: str, now: int | None = None) -> bool:
+    """Return True if HMAC-SHA256 signature is valid and timestamp is fresh."""
+    try:
+        ts = int(ts_str)
+    except (ValueError, TypeError):
+        return False
+    now = now if now is not None else int(time.time())
+    if abs(now - ts) > 300:
+        return False
+    expected = "sha256=" + hmac.new(
+        secret.encode(), f"{ts_str}.{body}".encode(), hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, sig_header)
+
+
+# ─── Crawl Scheduler ─────────────────────────────────────────────────────────
+
+class CrawlScheduler:
+    """Debounce + coalesce external crawl triggers.
+
+    States (implicit):
+      idle        no timer, not running
+      debouncing  timer active, not running
+      running     crawl subprocess + cooldown active
+      running+queued  same, plus one re-crawl pending
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._debounce_timer: threading.Timer | None = None
+        self._running = False   # True from crawl-start through end of cooldown
+        self._queued = False    # re-crawl requested while running/cooling
+
+    def trigger(self):
+        """Called by the webhook handler. Returns immediately."""
+        with self._lock:
+            if self._running:
+                self._queued = True
+                self._log("trigger received — crawl running, queued")
+                return
+            if self._debounce_timer:
+                self._debounce_timer.cancel()
+            self._debounce_timer = threading.Timer(
+                cfg.TRIGGER_DEBOUNCE_SECONDS, self._debounce_fired
+            )
+            self._debounce_timer.daemon = True
+            self._debounce_timer.start()
+            self._log(f"trigger received — debounce reset ({cfg.TRIGGER_DEBOUNCE_SECONDS}s)")
+
+    def _debounce_fired(self):
+        with self._lock:
+            self._debounce_timer = None
+            self._running = True
+        self._log("debounce elapsed — spawning crawl")
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        log_path = os.path.join(cfg.WORKSPACE_DIR, "crawl.log")
+        self._log("crawl started")
+        try:
+            with open(log_path, "a") as log:
+                subprocess.run(
+                    [sys.executable, os.path.join(cfg.WORKSPACE_DIR, "site_crawler.py")],
+                    stdout=log, stderr=log,
+                    cwd=cfg.WORKSPACE_DIR,
+                    env=os.environ,
+                )
+        except Exception as e:
+            self._log(f"crawl error: {e}")
+        self._log(f"crawl done — cooling down ({cfg.TRIGGER_COOLDOWN_SECONDS}s)")
+        time.sleep(cfg.TRIGGER_COOLDOWN_SECONDS)
+        with self._lock:
+            self._running = False
+            if self._queued:
+                self._queued = False
+                self._log("queued trigger — restarting debounce")
+                self._debounce_timer = threading.Timer(
+                    cfg.TRIGGER_DEBOUNCE_SECONDS, self._debounce_fired
+                )
+                self._debounce_timer.daemon = True
+                self._debounce_timer.start()
+            else:
+                self._log("idle")
+
+    @staticmethod
+    def _log(msg: str):
+        sys.stdout.write(f"  [scheduler] {msg}\n")
+        sys.stdout.flush()
 
 
 def _build_landing_page(error: str = "") -> str:
@@ -581,8 +689,10 @@ def build_overlay_html(current_date: str, manifests,
 # ─── Request Handler ─────────────────────────────────────────────────────────
 
 class WaybackHandler(BaseHTTPRequestHandler):
-    manifests: ManifestCache = None  # set by main()
-    gate_password: str = ""          # set by main()
+    manifests: ManifestCache = None   # set by main()
+    gate_password: str = ""           # set by main()
+    trigger_token: str = ""           # set by main()
+    scheduler: CrawlScheduler = None  # set by main()
 
     def log_message(self, format, *args):
         sys.stdout.write(f"  {args[0]}\n")
@@ -605,8 +715,39 @@ class WaybackHandler(BaseHTTPRequestHandler):
         self._head_only = True
         self.do_GET()
 
+    def _handle_trigger(self):
+        ts_str = self.headers.get("X-Timestamp", "")
+        sig_header = self.headers.get("X-Signature", "")
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8", errors="replace") if length else ""
+
+        token = WaybackHandler.trigger_token
+        if not token:
+            self._respond(503, b'{"error":"trigger not configured"}',
+                          "application/json")
+            return
+
+        if not ts_str or not sig_header:
+            self._respond(400, b'{"error":"missing X-Timestamp or X-Signature"}',
+                          "application/json")
+            return
+
+        if not verify_trigger_signature(token, ts_str, body, sig_header):
+            self._respond(401, b'{"error":"invalid signature or stale timestamp"}',
+                          "application/json")
+            return
+
+        WaybackHandler.scheduler.trigger()
+        self._respond(202, b'{"status":"accepted"}', "application/json")
+
     def do_POST(self):
         path = unquote(self.path)
+
+        # Trigger-crawl webhook — HMAC-authenticated, no gate cookie required
+        if path == "/~api/trigger-crawl":
+            self._handle_trigger()
+            return
+
         if path != "/~gate":
             self._error(405, "Method not allowed")
             return
@@ -874,6 +1015,17 @@ def main():
             print(f"  Gate:      password mode — WARNING: no ARCHIVE_PASSWORD in {cfg.GATE_ENV_FILE}")
     else:
         print(f"  Gate:      button mode (no password)")
+
+    # Load trigger token and start scheduler
+    trigger_tok = _load_trigger_token()
+    WaybackHandler.trigger_token = trigger_tok
+    WaybackHandler.scheduler = CrawlScheduler()
+    if trigger_tok:
+        print(f"  Trigger:   webhook enabled (TRIGGER_TOKEN set, "
+              f"debounce {cfg.TRIGGER_DEBOUNCE_SECONDS}s, "
+              f"cooldown {cfg.TRIGGER_COOLDOWN_SECONDS}s)")
+    else:
+        print(f"  Trigger:   WARNING — no TRIGGER_TOKEN in {cfg.GATE_ENV_FILE}, webhook disabled")
 
     # Load manifests
     cache = ManifestCache(cfg.SNAPSHOT_DIR)
