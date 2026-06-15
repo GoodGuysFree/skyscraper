@@ -1,5 +1,21 @@
 # Project Skyscraper — Workspace Rules
 
+## Read first — local ops docs
+
+**If `OPERATIONS.local.md` exists in the workspace root, read it before any
+deployment, server, infra, or release work.** It is the operational runbook
+(server access, service layout, deploy + go-live procedure) and is git-ignored
+— it never appears in this public repo.
+
+**If `DEPLOY.local.md` exists**, consult it for the step-by-step deploy sequence:
+run tests → push to GitHub → pull on VPS → restart server. Also covers restarting
+the remote service and editing `.env` on the VPS.
+
+Both files are git-ignored. CLAUDE.md is committed and world-readable; the local
+docs are where environment-specific and access-revealing details live.
+
+---
+
 ## What this is
 
 Two cooperating programs that together form a local "wayback machine" for `project-skyscraper.com`:
