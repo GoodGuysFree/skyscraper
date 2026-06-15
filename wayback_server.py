@@ -14,8 +14,10 @@ import sys
 import json
 import argparse
 import re
+import hashlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import unquote, urlparse
+from http.cookies import SimpleCookie
+from urllib.parse import unquote, urlparse, parse_qs
 from pathlib import Path
 from datetime import datetime
 
@@ -26,6 +28,142 @@ import crawler_config as cfg
 sys.stdout.reconfigure(encoding="utf-8")
 
 INTERNAL_HOSTS = {cfg.SITE_DOMAIN, f"www.{cfg.SITE_DOMAIN}"}
+
+# ─── Gate ────────────────────────────────────────────────────────────────────
+
+_GATE_COOKIE = "wb_token"
+
+
+def _load_gate_password() -> str:
+    """Read ARCHIVE_PASSWORD from the .env file (never committed)."""
+    env_path = cfg.GATE_ENV_FILE
+    if not os.path.isfile(env_path):
+        return ""
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("ARCHIVE_PASSWORD="):
+                return line.partition("=")[2].strip()
+    return ""
+
+
+def _token_for(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _build_landing_page(error: str = "") -> str:
+    """Return the full HTML for the front-page gate / splash."""
+    if cfg.GATE_MODE == "password":
+        error_html = f'<p class="error">{error}</p>' if error else ""
+        gate_html = f"""\
+      {error_html}
+      <form method="POST" action="/~gate">
+        <input type="password" name="pw" placeholder="Password" autofocus>
+        <button type="submit">Enter Archive</button>
+      </form>"""
+    else:
+        gate_html = """\
+      <form method="POST" action="/~gate">
+        <button type="submit">Enter Archive</button>
+      </form>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Skyscraper — Archive</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: #0d0d0d;
+      color: #c0c0c0;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }}
+    .card {{
+      max-width: 660px;
+      width: 100%;
+      border: 1px solid #222;
+      background: #111;
+      padding: 3rem 3.5rem;
+    }}
+    .logo {{ font-size: 0.7rem; color: #444; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 0.4rem; }}
+    h1 {{ font-size: 1.5rem; color: #e8e8e8; letter-spacing: 0.06em; margin-bottom: 0.25rem; }}
+    .tagline {{ font-size: 0.75rem; color: #444; margin-bottom: 3rem; }}
+    .section {{ margin-bottom: 1.8rem; }}
+    .section-label {{
+      font-size: 0.65rem; color: #3a3a3a; text-transform: uppercase;
+      letter-spacing: 0.2em; margin-bottom: 0.5rem;
+    }}
+    .section p {{ font-size: 0.82rem; color: #777; line-height: 1.75; }}
+    hr {{ border: none; border-top: 1px solid #1c1c1c; margin: 2.2rem 0; }}
+    .gate {{ text-align: center; }}
+    input[type=password] {{
+      display: block; width: 100%;
+      background: #0d0d0d; border: 1px solid #222; color: #c0c0c0;
+      padding: 0.65rem 1rem; font-family: inherit; font-size: 0.88rem;
+      margin-bottom: 0.75rem; outline: none;
+    }}
+    input[type=password]:focus {{ border-color: #3a3a3a; }}
+    button {{
+      display: block; width: 100%;
+      background: #181818; border: 1px solid #2e2e2e; color: #bbb;
+      padding: 0.65rem 2rem; font-family: inherit; font-size: 0.82rem;
+      letter-spacing: 0.1em; cursor: pointer; text-transform: uppercase;
+    }}
+    button:hover {{ background: #1e1e1e; border-color: #444; color: #e0e0e0; }}
+    .error {{ color: #c0504d; font-size: 0.78rem; margin-bottom: 0.75rem; }}
+    .footer {{ margin-top: 2rem; font-size: 0.65rem; color: #2a2a2a; text-align: center; }}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">GoodGuysFree Community</div>
+  <h1>Project Skyscraper</h1>
+  <div class="tagline">Wayback Archive — community-maintained preservation mirror</div>
+
+  <div class="section">
+    <div class="section-label">About</div>
+    <p>
+      This archive preserves snapshots of project-skyscraper.com, an ARG
+      (alternate reality game) created for the No Man's Sky community.
+      Pages are captured periodically so the record is never lost.
+    </p>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Disclaimer</div>
+    <p>
+      This is an unofficial fan archive, not affiliated with Hello Games or
+      the site's original creators. All original content remains the property
+      of its creators. Provided for research and preservation only.
+    </p>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Credits &amp; Thanks</div>
+    <p>
+      <!-- Add credits and thanks here -->
+      Built and maintained by the GoodGuysFree community.
+      Thanks to everyone who contributed to solving the ARG.
+    </p>
+  </div>
+
+  <hr>
+
+  <div class="gate">
+{gate_html}
+  </div>
+</div>
+<div class="footer">Project Skyscraper Wayback Machine</div>
+</body>
+</html>"""
 _ABS_URL_RE = re.compile(r"^https?://([^/]+)(/.*)?$", re.IGNORECASE)
 # Extensions that mark an href as a media/file link (download), not a page.
 _ASSET_EXT_RE = re.compile(
@@ -361,10 +499,54 @@ def build_overlay_html(current_date: str, manifests,
 
 class WaybackHandler(BaseHTTPRequestHandler):
     manifests: ManifestCache = None  # set by main()
+    gate_password: str = ""          # set by main()
 
     def log_message(self, format, *args):
-        # Quieter logging
         sys.stdout.write(f"  {args[0]}\n")
+
+    # ── Gate helpers ─────────────────────────────────────────────────────────
+
+    def _is_authenticated(self) -> bool:
+        if cfg.GATE_MODE != "password":
+            return True
+        c = SimpleCookie()
+        c.load(self.headers.get("Cookie", ""))
+        token = c.get(_GATE_COOKIE)
+        return bool(token and token.value == _token_for(WaybackHandler.gate_password))
+
+    def _auth_cookie_header(self) -> str:
+        token = _token_for(WaybackHandler.gate_password)
+        return f"{_GATE_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/"
+
+    def do_POST(self):
+        path = unquote(self.path)
+        if path != "/~gate":
+            self._error(405, "Method not allowed")
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8")
+        params = parse_qs(body)
+
+        if cfg.GATE_MODE == "button":
+            # Splash only — no password required; redirect straight in.
+            latest = self.manifests.latest_date or ""
+            self.send_response(302)
+            self.send_header("Location", f"/@{latest}/")
+            self.end_headers()
+            return
+
+        # Password mode
+        pw = params.get("pw", [""])[0]
+        if pw == WaybackHandler.gate_password:
+            latest = self.manifests.latest_date or ""
+            self.send_response(302)
+            self.send_header("Set-Cookie", self._auth_cookie_header())
+            self.send_header("Location", f"/@{latest}/")
+            self.end_headers()
+        else:
+            body_html = _build_landing_page(error="Incorrect password.")
+            self._respond(403, body_html.encode("utf-8"), "text/html; charset=utf-8")
 
     def do_GET(self):
         path = unquote(self.path)
@@ -372,23 +554,40 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # Keep in sync with the crawler — pick up newly-added snapshots/pages.
         self.manifests.maybe_reload()
 
-        # ── Root → redirect to latest date ──
+        # ── Root → landing page (gate or splash) ──
         if path == "/" or path == "":
-            latest = self.manifests.latest_date
-            if latest:
-                self._redirect(f"/@{latest}/")
+            if self._is_authenticated():
+                latest = self.manifests.latest_date
+                if latest:
+                    self._redirect(f"/@{latest}/")
+                else:
+                    self._error(503, "No snapshots available. Run site_crawler.py first.")
             else:
-                self._error(503, "No snapshots available. Run site_crawler.py first.")
+                body = _build_landing_page()
+                self._respond(200, body.encode("utf-8"), "text/html; charset=utf-8")
+            return
+
+        # ── Logout ──
+        if path == "/~gate/logout":
+            self.send_response(302)
+            self.send_header("Set-Cookie", f"{_GATE_COOKIE}=; Max-Age=0; Path=/")
+            self.send_header("Location", "/")
+            self.end_headers()
+            return
+
+        # ── Blob/asset serving — always open (content-addressed, no page info) ──
+        if path.startswith("/_assets/"):
+            self._serve_asset(path)
+            return
+
+        # ── Everything else requires auth ──
+        if not self._is_authenticated():
+            self._redirect("/")
             return
 
         # ── API endpoints ──
         if path.startswith("/~api/"):
             self._handle_api(path)
-            return
-
-        # ── Blob/asset serving ──
-        if path.startswith("/_assets/"):
-            self._serve_asset(path)
             return
 
         # ── Date-routed page serving ──
@@ -565,6 +764,17 @@ def main():
 
     print(f"═══ Project Skyscraper Wayback Machine ═══")
     print()
+
+    # Load gate password from .env
+    gate_pw = _load_gate_password()
+    WaybackHandler.gate_password = gate_pw
+    if cfg.GATE_MODE == "password":
+        if gate_pw:
+            print(f"  Gate:      password mode (ARCHIVE_PASSWORD set)")
+        else:
+            print(f"  Gate:      password mode — WARNING: no ARCHIVE_PASSWORD in {cfg.GATE_ENV_FILE}")
+    else:
+        print(f"  Gate:      button mode (no password)")
 
     # Load manifests
     cache = ManifestCache(cfg.SNAPSHOT_DIR)

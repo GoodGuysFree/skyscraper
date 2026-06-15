@@ -140,3 +140,13 @@ MIME_TYPES = {
 
 SERVER_HOST = "localhost"
 SERVER_PORT = 8070
+
+# ── Front-Page Gate ──────────────────────────────────────────────────────────
+# GATE_MODE controls what visitors see before entering the archive.
+#   "password" — ask for a password (read from .env → ARCHIVE_PASSWORD)
+#   "button"   — show a splash page with an "Enter Archive" button, no password
+GATE_MODE = "password"
+
+# Path to the environment file that supplies ARCHIVE_PASSWORD.
+# Never commit this file — it is git-ignored.
+GATE_ENV_FILE = os.path.join(WORKSPACE_DIR, ".env")

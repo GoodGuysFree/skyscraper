@@ -19,3 +19,11 @@ crawl.log
 *.swo
 *~
 .DS_Store
+
+# Local-only operational docs — infra, server access, runbook.
+# MUST NOT be committed: this repo is PUBLIC. Anything matching stays local.
+*.local.md
+.local/
+
+# Environment file — holds ARCHIVE_PASSWORD and other runtime secrets.
+.env
