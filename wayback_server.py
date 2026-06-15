@@ -187,7 +187,7 @@ def _build_landing_page(error: str = "", latest_date: str = "",
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
-      background: #0d0d0d;
+      background: #0d0d0d url('/_static/bg.jpg') center center / cover no-repeat fixed;
       color: #c8c8c8;
       font-family: 'IBM Plex Mono', 'Courier New', monospace;
       min-height: 100vh;
@@ -831,6 +831,11 @@ class WaybackHandler(BaseHTTPRequestHandler):
             self._serve_asset(path)
             return
 
+        # ── Static UI files (bg images etc.) — always open, no auth ──
+        if path.startswith("/_static/"):
+            self._serve_static(path)
+            return
+
         # ── Everything else requires auth ──
         if not self._is_authenticated():
             self._redirect("/")
@@ -986,6 +991,30 @@ a:hover {{ color: #bae6fd; }}
         self.send_header("Content-Length", str(len(data)))
         # Content-addressed = immutable = cache forever
         self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(data)
+
+    def _serve_static(self, path: str):
+        # path: /_static/<filename> — serves from static/ dir next to this script
+        filename = path[len("/_static/"):]
+        # Guard against path traversal
+        if not filename or "/" in filename or "\\" in filename or filename.startswith("."):
+            self._error(404, "Not found")
+            return
+        static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+        fs_path = os.path.join(static_dir, filename)
+        if not os.path.isfile(fs_path):
+            self._error(404, f"Static file not found: {filename}")
+            return
+        _, ext = os.path.splitext(fs_path)
+        content_type = cfg.MIME_TYPES.get(ext.lower(), "application/octet-stream")
+        with open(fs_path, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=86400")
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(data)
