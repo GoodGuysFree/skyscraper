@@ -161,6 +161,10 @@ CANONICAL_IGNORE_PATTERNS = [
     # bytes produces a new hash and a new /_assets/... URL, even if visually
     # identical. Strip them so canonical_hash reflects text/structure only.
     r"/_assets/[0-9a-f]{2}/[0-9a-f]{64}\.[a-z0-9]+",
+    # WordPress nonces are time-based tokens that change every ~12h. Strip the
+    # entire hidden input so nonce rotation doesn't flag pages as modified.
+    r'<input[^>]*name=["\']_wpnonce["\'][^>]*/?>',
+    r'<input[^>]*name=["\']_wp_http_referer["\'][^>]*/?>',
 ]
 
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
