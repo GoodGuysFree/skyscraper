@@ -530,6 +530,17 @@ def rewrite_css_assets(css_text: str, asset_map: dict, css_url: str) -> str:
     return CSS_URL_RE.sub(replacer, css_text)
 
 
+_CANONICAL_IGNORE_RES = [re.compile(p) for p in cfg.CANONICAL_IGNORE_PATTERNS]
+
+
+def canonical_hash(html: str) -> str:
+    """SHA-256 of html after stripping known dynamic content (counters etc.)."""
+    normalized = html
+    for pat in _CANONICAL_IGNORE_RES:
+        normalized = pat.sub("", normalized)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
 # ─── Main Crawler ────────────────────────────────────────────────────────────
 
 class SiteCrawler:
@@ -758,14 +769,18 @@ class SiteCrawler:
         # Store the rewritten HTML
         final_html = str(soup)
         sha = self.blobs.put_text(final_html, ".html")
+        c_hash = canonical_hash(final_html)
 
-        return {
+        entry = {
             "blob": sha,
             "content_type": "text/html",
             "original_url": url,
             "title": title,
             "path": path,
-        }, discovered
+        }
+        if c_hash != sha:
+            entry["canonical_hash"] = c_hash
+        return entry, discovered
 
     # ── Queue-based crawl loop (handles pagination discovery) ────────────
 
@@ -994,8 +1009,13 @@ class SiteCrawler:
                     for path in curr_pages:
                         if path not in prev_pages:
                             changes["pages_added"].append(path)
-                        elif curr_pages[path]["blob"] != prev_pages[path]["blob"]:
-                            changes["pages_modified"].append(path)
+                        else:
+                            c = curr_pages[path]
+                            p = prev_pages[path]
+                            curr_key = c.get("canonical_hash") or c["blob"]
+                            prev_key = p.get("canonical_hash") or p["blob"]
+                            if curr_key != prev_key:
+                                changes["pages_modified"].append(path)
 
                     for path in prev_pages:
                         if path not in curr_pages:

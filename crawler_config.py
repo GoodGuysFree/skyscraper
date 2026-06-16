@@ -151,6 +151,14 @@ GATE_MODE = "password"
 # Never commit this file — it is git-ignored.
 GATE_ENV_FILE = os.path.join(WORKSPACE_DIR, ".env")
 
+# ── Canonical Hash — dynamic content to ignore in change detection ────────────
+# Regex patterns applied to page HTML before computing canonical_hash.
+# Pages whose only differences match these patterns are not marked as modified.
+# Safe to extend; removing patterns affects new snapshots only.
+CANONICAL_IGNORE_PATTERNS = [
+    r"Memory_bloc_\w+: \d+/\d+ Completed",
+]
+
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
 # Debounce: wait this many seconds after the last trigger before starting a crawl.
 # Coalesces rapid triggers into a single crawl.

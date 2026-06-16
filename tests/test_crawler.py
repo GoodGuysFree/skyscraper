@@ -181,6 +181,7 @@ class TestBlobStoreFsPath:
 # Trigger log (--trigger arg written to crawl_triggers.log)
 # ══════════════════════════════════════════════════════════════════════════════
 
+import hashlib
 import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -247,3 +248,41 @@ class TestTriggerLog:
         assert len(log) == 2
         assert log[0]["trigger"] == "cron"
         assert log[1]["trigger"] == "api"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# canonical_hash — dynamic content stripping
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCanonicalHash:
+    def _sha256(self, s: str) -> str:
+        return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+    def test_static_page_matches_blob_hash(self):
+        html = "<html><body><p>Hello world</p></body></html>"
+        assert sc.canonical_hash(html) == self._sha256(html)
+
+    def test_dynamic_counter_stripped(self):
+        html_a = "<p>Memory_bloc_restoration: 201/365 Completed</p>"
+        html_b = "<p>Memory_bloc_restoration: 240/365 Completed</p>"
+        assert sc.canonical_hash(html_a) == sc.canonical_hash(html_b)
+
+    def test_verification_counter_stripped(self):
+        html_a = "<p>Memory_bloc_verification: 0/365 Completed</p>"
+        html_b = "<p>Memory_bloc_verification: 99/365 Completed</p>"
+        assert sc.canonical_hash(html_a) == sc.canonical_hash(html_b)
+
+    def test_real_content_change_still_detected(self):
+        html_a = "<p>Memory_bloc_restoration: 201/365 Completed</p><p>Chapter 1</p>"
+        html_b = "<p>Memory_bloc_restoration: 201/365 Completed</p><p>Chapter 2</p>"
+        assert sc.canonical_hash(html_a) != sc.canonical_hash(html_b)
+
+    def test_both_counters_stripped_independently(self):
+        html_a = "<p>Memory_bloc_restoration: 1/365 Completed<br/>Memory_bloc_verification: 0/365 Completed</p>"
+        html_b = "<p>Memory_bloc_restoration: 300/365 Completed<br/>Memory_bloc_verification: 50/365 Completed</p>"
+        assert sc.canonical_hash(html_a) == sc.canonical_hash(html_b)
+
+    def test_canonical_hash_differs_from_blob_when_dynamic_present(self):
+        html = "<p>Memory_bloc_restoration: 201/365 Completed</p>"
+        blob_hash = self._sha256(html)
+        assert sc.canonical_hash(html) != blob_hash
