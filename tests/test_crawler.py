@@ -175,3 +175,75 @@ class TestBlobStoreFsPath:
         sha = store.put_bytes(data, ".css")
         shard_dir = Path(store.root) / sha[:2]
         assert shard_dir.is_dir()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trigger log (--trigger arg written to crawl_triggers.log)
+# ══════════════════════════════════════════════════════════════════════════════
+
+import json
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+
+def _run_main_with_args(args, tmp_path):
+    """Call site_crawler.main() with a patched MIRROR_DIR and mocked crawler."""
+    with patch.object(sc.cfg, "MIRROR_DIR", str(tmp_path)), \
+         patch.object(sc.cfg, "BLOB_DIR", str(tmp_path / "_assets")), \
+         patch.object(sc.cfg, "SNAPSHOT_DIR", str(tmp_path / "snapshots")), \
+         patch("site_crawler.SiteCrawler") as MockCrawler:
+        MockCrawler.return_value.crawl = MagicMock()
+        MockCrawler.return_value.augment = MagicMock()
+        import sys as _sys
+        old_argv = _sys.argv
+        _sys.argv = ["site_crawler.py"] + args
+        try:
+            sc.main()
+        finally:
+            _sys.argv = old_argv
+        return MockCrawler
+
+
+class TestTriggerLog:
+    def _read_log(self, tmp_path):
+        log_path = tmp_path / "crawl_triggers.log"
+        return [json.loads(l) for l in log_path.read_text().splitlines() if l.strip()]
+
+    def test_trigger_log_created_on_crawl(self, tmp_path):
+        _run_main_with_args([], tmp_path)
+        log = self._read_log(tmp_path)
+        assert len(log) == 1
+
+    def test_trigger_default_is_manual(self, tmp_path):
+        _run_main_with_args([], tmp_path)
+        assert self._read_log(tmp_path)[0]["trigger"] == "manual"
+
+    def test_trigger_cron(self, tmp_path):
+        _run_main_with_args(["--trigger", "cron"], tmp_path)
+        assert self._read_log(tmp_path)[0]["trigger"] == "cron"
+
+    def test_trigger_api(self, tmp_path):
+        _run_main_with_args(["--trigger", "api"], tmp_path)
+        assert self._read_log(tmp_path)[0]["trigger"] == "api"
+
+    def test_mode_crawl(self, tmp_path):
+        _run_main_with_args([], tmp_path)
+        assert self._read_log(tmp_path)[0]["mode"] == "crawl"
+
+    def test_mode_augment(self, tmp_path):
+        _run_main_with_args(["--augment"], tmp_path)
+        assert self._read_log(tmp_path)[0]["mode"] == "augment"
+
+    def test_trigger_log_has_ts_field(self, tmp_path):
+        _run_main_with_args([], tmp_path)
+        entry = self._read_log(tmp_path)[0]
+        assert "ts" in entry
+        assert entry["ts"].endswith("Z")
+
+    def test_trigger_log_appends(self, tmp_path):
+        _run_main_with_args(["--trigger", "cron"], tmp_path)
+        _run_main_with_args(["--trigger", "api"], tmp_path)
+        log = self._read_log(tmp_path)
+        assert len(log) == 2
+        assert log[0]["trigger"] == "cron"
+        assert log[1]["trigger"] == "api"

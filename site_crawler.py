@@ -1028,11 +1028,25 @@ def main():
         "--augment", action="store_true",
         help="Add newly-discovered pages to the most recent existing snapshot"
     )
+    parser.add_argument(
+        "--trigger", default="manual", choices=["cron", "manual", "api"],
+        help="What triggered this crawl (recorded in trigger log)"
+    )
     args = parser.parse_args()
 
     os.makedirs(cfg.MIRROR_DIR, exist_ok=True)
     os.makedirs(cfg.BLOB_DIR, exist_ok=True)
     os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
+
+    mode = "augment" if args.augment else "crawl"
+    trigger_log_path = os.path.join(cfg.MIRROR_DIR, "crawl_triggers.log")
+    entry = json.dumps({
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "trigger": args.trigger,
+        "mode": mode,
+    })
+    with open(trigger_log_path, "a", encoding="utf-8") as f:
+        f.write(entry + "\n")
 
     crawler = SiteCrawler()
     if args.augment:
