@@ -157,6 +157,10 @@ GATE_ENV_FILE = os.path.join(WORKSPACE_DIR, ".env")
 # Safe to extend; removing patterns affects new snapshots only.
 CANONICAL_IGNORE_PATTERNS = [
     r"Memory_bloc_\w+: \d+/\d+ Completed",
+    # Blob paths are content-addressed: same asset re-downloaded with different
+    # bytes produces a new hash and a new /_assets/... URL, even if visually
+    # identical. Strip them so canonical_hash reflects text/structure only.
+    r"/_assets/[0-9a-f]{2}/[0-9a-f]{64}\.[a-z0-9]+",
 ]
 
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
