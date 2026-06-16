@@ -286,3 +286,70 @@ class TestCanonicalHash:
         html = "<p>Memory_bloc_restoration: 201/365 Completed</p>"
         blob_hash = self._sha256(html)
         assert sc.canonical_hash(html) != blob_hash
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# skip-if-no-changes logic in crawl()
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _empty_changes(previous_date="2026-06-15T1832"):
+    return {
+        "previous_date": previous_date,
+        "pages_added": [],
+        "pages_modified": [],
+        "pages_removed": [],
+        "assets_added": 0,
+        "assets_modified": 0,
+        "summary": "0 added, 0 modified, 0 removed, 0 new assets",
+    }
+
+
+class TestSkipUnchangedSnapshot:
+    def _run_crawl(self, tmp_path, changes_return):
+        snap_dir = tmp_path / "snapshots"
+        snap_dir.mkdir(parents=True)
+        with patch.object(sc.cfg, "SNAPSHOT_DIR", str(snap_dir)), \
+             patch.object(sc.cfg, "MIRROR_DIR", str(tmp_path)), \
+             patch.object(sc.cfg, "BLOB_DIR", str(tmp_path / "_assets")), \
+             patch.object(sc.cfg, "STATE_FILE", str(tmp_path / "state.json")), \
+             patch("site_crawler.sync_playwright"), \
+             patch("site_crawler.fetch_sitemap", return_value=b"<urlset></urlset>"), \
+             patch("site_crawler.parse_sitemap", return_value=([], [])), \
+             patch.object(sc.SiteCrawler, "_compute_changes", return_value=changes_return), \
+             patch.object(sc.SiteCrawler, "_crawl_loop"):
+            crawler = sc.SiteCrawler()
+            crawler.crawl()
+        return snap_dir
+
+    def test_no_changes_skips_snapshot(self, tmp_path):
+        snap_dir = self._run_crawl(tmp_path, _empty_changes())
+        assert list(snap_dir.iterdir()) == []
+
+    def test_pages_added_saves_snapshot(self, tmp_path):
+        changes = _empty_changes()
+        changes["pages_added"] = ["/new-page/"]
+        snap_dir = self._run_crawl(tmp_path, changes)
+        assert any(snap_dir.iterdir())
+
+    def test_pages_modified_saves_snapshot(self, tmp_path):
+        changes = _empty_changes()
+        changes["pages_modified"] = ["/about/"]
+        snap_dir = self._run_crawl(tmp_path, changes)
+        assert any(snap_dir.iterdir())
+
+    def test_pages_removed_saves_snapshot(self, tmp_path):
+        changes = _empty_changes()
+        changes["pages_removed"] = ["/old-page/"]
+        snap_dir = self._run_crawl(tmp_path, changes)
+        assert any(snap_dir.iterdir())
+
+    def test_assets_added_saves_snapshot(self, tmp_path):
+        changes = _empty_changes()
+        changes["assets_added"] = 3
+        snap_dir = self._run_crawl(tmp_path, changes)
+        assert any(snap_dir.iterdir())
+
+    def test_first_snapshot_always_saved(self, tmp_path):
+        changes = _empty_changes(previous_date=None)
+        snap_dir = self._run_crawl(tmp_path, changes)
+        assert any(snap_dir.iterdir())

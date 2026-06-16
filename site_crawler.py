@@ -955,7 +955,17 @@ class SiteCrawler:
         # 5. Compute changes from previous snapshot
         changes = self._compute_changes(today, manifest)
 
-        # 6. Save
+        # 6. Skip if nothing changed (but always save the very first snapshot)
+        if changes["previous_date"] is not None and not any([
+            changes["pages_added"],
+            changes["pages_modified"],
+            changes["pages_removed"],
+            changes["assets_added"],
+        ]):
+            print(f"\n⏭  No changes from {changes['previous_date']} — snapshot skipped.")
+            return
+
+        # 7. Save
         os.makedirs(snapshot_dir, exist_ok=True)
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)
