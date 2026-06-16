@@ -346,6 +346,69 @@ def rewrite_internal_links(html: str, date: str, asset_by_path: dict) -> str:
     return str(soup)
 
 
+_POST_URL_RE = re.compile(r"^/\d{4}/\d{2}/\d{2}/")
+_PAGINATION_RE = re.compile(r"^/(?:page/\d+/)?$")
+
+
+def _is_pagination_page(page_path: str) -> bool:
+    """True for the WordPress blog index and its /page/N/ siblings."""
+    return bool(_PAGINATION_RE.match(page_path))
+
+
+def apply_diff_colors(html: str, date: str, changes: dict) -> str:
+    """Add wb-diff-* classes to post links on index pages.
+
+    Only touches <a> tags whose rewritten href matches /@date/YYYY/MM/DD/…
+    (i.e. individual post links). All other links are left alone.
+    Colors are on by default; adding class wb-diff-off to <html> hides them.
+    Returns the original string unchanged if nothing was tagged.
+    """
+    added = set(changes.get("pages_added", []))
+    modified = set(changes.get("pages_modified", []))
+    prefix = f"/@{date}"
+
+    soup = BeautifulSoup(html, "html.parser")
+    tagged = False
+
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "")
+        if not href.startswith(prefix):
+            continue
+        path = href[len(prefix):]
+        if not _POST_URL_RE.match(path):
+            continue
+        if not path.endswith("/"):
+            path += "/"
+        if path in added:
+            cls = "wb-diff-new"
+        elif path in modified:
+            cls = "wb-diff-changed"
+        else:
+            cls = "wb-diff-unchanged"
+        existing = a.get("class") or []
+        a["class"] = existing + [cls]
+        tagged = True
+
+    if not tagged:
+        return html
+
+    style_tag = soup.new_tag("style")
+    style_tag.string = (
+        "a.wb-diff-new{color:#4ade80!important}"
+        "a.wb-diff-changed{color:#fbbf24!important}"
+        "html.wb-diff-off a.wb-diff-new,"
+        "html.wb-diff-off a.wb-diff-changed,"
+        "html.wb-diff-off a.wb-diff-unchanged{color:inherit!important}"
+    )
+    head = soup.find("head")
+    if head:
+        head.append(style_tag)
+    else:
+        soup.insert(0, style_tag)
+
+    return str(soup)
+
+
 # ─── Manifest Cache ──────────────────────────────────────────────────────────
 
 class ManifestCache:
@@ -473,7 +536,8 @@ _PAGE_STATUS_BADGES: dict[str, tuple[str, str]] = {
 
 
 def build_header_html(date: str, original_url: str,
-                      page_status: str | None = None) -> str:
+                      page_status: str | None = None,
+                      show_diff_toggle: bool = False) -> str:
     """Thin fixed top bar: mirror notice, link to live page, snapshot date, GGF badge."""
     try:
         dt = datetime.strptime(date, "%Y-%m-%dT%H%M")
@@ -526,6 +590,7 @@ def build_header_html(date: str, original_url: str,
   font-size: 10px; padding: 1px 6px; border-radius: 3px;
   letter-spacing: 0.05em; border: 1px solid;
 }}
+{'#wb-topbar .wb-diff-toggle{background:none;border:1px solid #2a2a2a;color:#555;font-family:inherit;font-size:10px;letter-spacing:.08em;padding:1px 7px;cursor:pointer;border-radius:2px}#wb-topbar .wb-diff-toggle:hover{border-color:#444;color:#999}' if show_diff_toggle else ''}
 </style>
 <div id="wb-topbar">
   <div class="wb-tb-left">
@@ -535,6 +600,7 @@ def build_header_html(date: str, original_url: str,
     {status_html}
   </div>
   <div class="wb-tb-right">
+    {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
     <span class="wb-tb-ggf">GGF</span>
   </div>
 </div>
@@ -915,9 +981,15 @@ class WaybackHandler(BaseHTTPRequestHandler):
         else:
             page_status = None
 
+        # On index/pagination pages, colour post links by diff status.
+        is_pagination = _is_pagination_page(page_path)
+        if is_pagination and changes:
+            html = apply_diff_colors(html, date, changes)
+
         # Inject top header bar after <body>
         original_url = page_data.get("original_url", cfg.SITE_ORIGIN + page_path)
-        header = build_header_html(date, original_url, page_status)
+        header = build_header_html(date, original_url, page_status,
+                                   show_diff_toggle=is_pagination)
         body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
         if body_tag:
             end = body_tag.end()

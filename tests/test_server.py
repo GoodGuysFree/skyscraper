@@ -803,3 +803,88 @@ def test_scheduler_no_timer_started_while_running():
     with patch("wayback_server.threading") as mock_threading:
         sched.trigger()
         mock_threading.Timer.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _is_pagination_page
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("path", ["/", "/page/2/", "/page/10/"])
+def test_is_pagination_page_true(path):
+    assert ws._is_pagination_page(path)
+
+
+@pytest.mark.parametrize("path", [
+    "/about/", "/2016/01/22/event/", "/page/", "/page/foo/", "/page/2",
+])
+def test_is_pagination_page_false(path):
+    assert not ws._is_pagination_page(path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# apply_diff_colors
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _changes(added=(), modified=()):
+    return {
+        "pages_added": list(added),
+        "pages_modified": list(modified),
+        "pages_removed": [],
+        "assets_added": 0,
+    }
+
+
+_DATE = "2026-06-16T1725"
+_PREFIX = f"/@{_DATE}"
+
+
+def _page_html(*hrefs):
+    links = "".join(f'<a href="{h}">link</a>' for h in hrefs)
+    return f"<html><head></head><body>{links}</body></html>"
+
+
+class TestApplyDiffColors:
+    def test_new_page_gets_wb_diff_new(self):
+        html = _page_html(f"{_PREFIX}/2026/06/16/some-post/")
+        result = ws.apply_diff_colors(html, _DATE, _changes(added=["/2026/06/16/some-post/"]))
+        assert "wb-diff-new" in result
+
+    def test_modified_page_gets_wb_diff_changed(self):
+        html = _page_html(f"{_PREFIX}/2026/01/01/old-post/")
+        result = ws.apply_diff_colors(html, _DATE, _changes(modified=["/2026/01/01/old-post/"]))
+        assert "wb-diff-changed" in result
+
+    def test_unchanged_post_gets_wb_diff_unchanged(self):
+        html = _page_html(f"{_PREFIX}/2016/12/01/event/")
+        result = ws.apply_diff_colors(html, _DATE, _changes())
+        assert "wb-diff-unchanged" in result
+
+    def test_non_post_link_not_tagged(self):
+        html = _page_html(f"{_PREFIX}/about/", f"{_PREFIX}/page/2/")
+        result = ws.apply_diff_colors(html, _DATE, _changes(added=["/about/"]))
+        assert "wb-diff-" not in result
+
+    def test_external_link_not_tagged(self):
+        html = _page_html("https://example.com/2016/01/01/foo/")
+        result = ws.apply_diff_colors(html, _DATE, _changes())
+        assert "wb-diff-" not in result
+
+    def test_css_injected_when_tagged(self):
+        html = _page_html(f"{_PREFIX}/2026/06/16/post/")
+        result = ws.apply_diff_colors(html, _DATE, _changes(added=["/2026/06/16/post/"]))
+        assert "wb-diff-new" in result
+        assert "wb-diff-off" in result  # toggle CSS present
+
+    def test_no_op_when_no_post_links(self):
+        html = _page_html(f"{_PREFIX}/about/")
+        result = ws.apply_diff_colors(html, _DATE, _changes())
+        assert result == html  # string unchanged
+
+    def test_diff_toggle_in_header_when_pagination(self):
+        header = ws.build_header_html(_DATE, "https://example.com/", show_diff_toggle=True)
+        assert "wb-diff-toggle" in header
+        assert "wb-diff-off" in header
+
+    def test_no_diff_toggle_in_header_by_default(self):
+        header = ws.build_header_html(_DATE, "https://example.com/")
+        assert "wb-diff-toggle" not in header
