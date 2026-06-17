@@ -165,6 +165,11 @@ CANONICAL_IGNORE_PATTERNS = [
     # entire hidden input so nonce rotation doesn't flag pages as modified.
     r'<input[^>]*name=["\']_wpnonce["\'][^>]*/?>',
     r'<input[^>]*name=["\']_wp_http_referer["\'][^>]*/?>',
+    # Jetpack Carousel and other WP plugins embed rotating nonces in inline JS.
+    r'"nonce"\s*:\s*"[^"]*"',
+    # Previous/Next post navigation links: adding a page reshuffles the chain
+    # for neighbouring posts but is not a content change.
+    r'<a\b[^>]*>\s*(?:Previous|Next)\s*</a>',
 ]
 
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
