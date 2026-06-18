@@ -1158,6 +1158,25 @@ class TestStatsHtml:
 # _inject_form_block — targets the INNER Jetpack form, not the password gate
 # ══════════════════════════════════════════════════════════════════════════════
 
+class TestResolveClientIp:
+    def test_no_xff_falls_back_to_remote(self):
+        assert ws._resolve_client_ip(None, "127.0.0.1") == "127.0.0.1"
+        assert ws._resolve_client_ip("", "10.0.0.5") == "10.0.0.5"
+
+    def test_single_xff_entry(self):
+        assert ws._resolve_client_ip("203.0.113.7", "127.0.0.1") == "203.0.113.7"
+
+    def test_takes_last_entry_caddy_appended(self):
+        # client may spoof earlier entries; Caddy appends the real one last
+        assert ws._resolve_client_ip("1.2.3.4, 203.0.113.7", "127.0.0.1") == "203.0.113.7"
+
+    def test_strips_whitespace(self):
+        assert ws._resolve_client_ip("  203.0.113.9  ", "127.0.0.1") == "203.0.113.9"
+
+    def test_ignores_empty_segments(self):
+        assert ws._resolve_client_ip("203.0.113.7, ,", "127.0.0.1") == "203.0.113.7"
+
+
 class TestInjectFormBlock:
     def test_injects_into_body_tag(self):
         html = '<html><body><form class="jetpack-contact-form__form"></form></body></html>'

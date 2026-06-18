@@ -171,6 +171,23 @@ def _compute_stats(conn: sqlite3.Connection) -> dict:
     }
 
 
+def _resolve_client_ip(xff_header: str | None, remote_addr: str) -> str:
+    """Real client IP behind the Caddy reverse proxy.
+
+    The server binds 127.0.0.1, so every TCP peer is Caddy — `remote_addr` is
+    always 127.0.0.1 and would collapse all visitors to one IP. Caddy appends the
+    real client to X-Forwarded-For, so the LAST entry is the trustworthy
+    proxy-added address (a client may spoof earlier entries, but Caddy's appended
+    value is authoritative since only Caddy can reach the port). Falls back to
+    remote_addr when no XFF is present (e.g. direct localhost/dev access).
+    """
+    if xff_header:
+        parts = [p.strip() for p in xff_header.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return remote_addr
+
+
 def _compute_stats_empty() -> dict:
     """Return a zero-filled stats dict for when no AccessLog is initialized."""
     return {
@@ -1695,7 +1712,8 @@ a {{ color: #7dd3fc; }}
         if self.__class__.access_log is not None:
             path = self.path.split("?")[0]
             self.__class__.access_log.record(
-                ip=self.client_address[0],
+                ip=_resolve_client_ip(self.headers.get("X-Forwarded-For"),
+                                      self.client_address[0]),
                 path=path,
                 status=code,
                 bytes_sent=len(body),
