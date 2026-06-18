@@ -1056,6 +1056,7 @@ def build_overlay_html(current_date: str, manifests,
     var href = link.getAttribute('href');
     if (!href) return;
     if (href.startsWith('/@') || href.startsWith('/_assets') ||
+        href.startsWith('/~') ||
         href.startsWith('#') || href.startsWith('mailto:') ||
         href.startsWith('javascript:')) return;
     if (/^https?:\\/\\//.test(href)) {{
