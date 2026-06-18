@@ -222,7 +222,7 @@ class TestBuildHeaderHtml:
     def test_old_notice_when_backfilled(self):
         html = ws.build_header_html("2026-06-04T1806", "https://example.com/",
                                     is_backfilled=True)
-        assert "Old snapshot — may not be accurate" in html
+        assert "Old snapshot — may not be accurate (thx vector_cmdr!)" in html
         assert 'class="wb-tb-old"' in html
 
 

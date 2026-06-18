@@ -888,7 +888,7 @@ def build_header_html(date: str, original_url: str,
         old_html = (
             '<span class="wb-tb-old" title="This snapshot was reconstructed from '
             'an external mirror and may not be fully accurate">'
-            'Old snapshot — may not be accurate</span>'
+            'Old snapshot — may not be accurate (thx vector_cmdr!)</span>'
         )
 
     return f"""<!-- ═══ WB HEADER ═══ -->
