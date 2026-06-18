@@ -1134,6 +1134,38 @@ class TestInjectFormBlock:
         result = ws._inject_form_block(html)
         assert "Form disabled in archive" in result
 
+    # ── _neutralize_inner_form: structural, JS-independent ──────────────────
+    def test_neutralize_rewrites_action_to_hash(self):
+        html = ('<form class="jetpack-contact-form__form" method="GET" '
+                'action="https://project-skyscraper.com/request-memory-timestamp-094317/" '
+                'data-wp-on--submit="actions.onFormSubmit">x</form>')
+        result = ws._neutralize_inner_form(html)
+        assert 'action="#"' in result
+        assert "project-skyscraper.com/request-memory" not in result
+
+    def test_neutralize_strips_wp_interactivity_directives(self):
+        html = ('<form id="jp-form-abc" method="get" action="https://x/" '
+                'data-wp-on--submit="actions.onFormSubmit" '
+                'data-wp-on--reset="actions.onFormReset">x</form>')
+        result = ws._neutralize_inner_form(html)
+        assert "data-wp-on--submit" not in result
+        assert "data-wp-on--reset" not in result
+
+    def test_neutralize_sets_onsubmit_return_false(self):
+        html = '<form class="jetpack-contact-form__form" action="https://x/">x</form>'
+        result = ws._neutralize_inner_form(html)
+        assert 'onsubmit="return false;"' in result
+
+    def test_neutralize_leaves_other_forms_untouched(self):
+        html = '<form class="post-password-form" action="https://x/wp-login.php">x</form>'
+        result = ws._neutralize_inner_form(html)
+        assert result == html  # gate form is not an inner ARG form
+
+    def test_neutralize_no_action_attr_adds_one(self):
+        html = '<form class="jetpack-contact-form__form" method="get">x</form>'
+        result = ws._neutralize_inner_form(html)
+        assert 'action="#"' in result
+
     def test_targets_jetpack_form_selector_not_post_password(self):
         # The block JS must hook the Jetpack form, NOT the WordPress gate form.
         html = '<html><body><form class="jetpack-contact-form__form"></form></body></html>'

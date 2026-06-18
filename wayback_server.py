@@ -948,6 +948,42 @@ font-family:inherit;cursor:pointer;border-radius:2px;font-size:0.85rem;">OK</but
 </script>"""
 
 
+# Opening tag of the inner Jetpack form, matched by class or jp-form- id.
+_INNER_FORM_TAG_RE = re.compile(
+    r'<form\b[^>]*?(?:jetpack-contact-form__form|id="jp-form-)[^>]*>',
+    re.IGNORECASE,
+)
+
+
+def _neutralize_inner_form(html: str) -> str:
+    """Make the inner ARG form structurally non-functional so it can NEVER submit
+    to the live site — independent of JavaScript or which snapshot served it.
+
+    Rewrites the form's opening tag: action -> "#", method -> get, onsubmit ->
+    return false, and strips the WordPress Interactivity directives
+    (data-wp-on--submit / --reset) that would otherwise fire an AJAX POST to the
+    real endpoint. The 'Form disabled in archive' modal is layered on top for UX.
+    """
+    def fix(m: re.Match) -> str:
+        tag = m.group(0)
+        if re.search(r'\baction\s*=\s*"[^"]*"', tag, re.IGNORECASE):
+            tag = re.sub(r'\baction\s*=\s*"[^"]*"', 'action="#"', tag,
+                         flags=re.IGNORECASE)
+        else:
+            tag = tag[:-1] + ' action="#">'
+        tag = re.sub(r'\bmethod\s*=\s*"[^"]*"', 'method="get"', tag,
+                     flags=re.IGNORECASE)
+        tag = re.sub(r'\sdata-wp-on--(?:submit|reset)\s*=\s*"[^"]*"', '', tag,
+                     flags=re.IGNORECASE)
+        if re.search(r'\bonsubmit\s*=', tag, re.IGNORECASE):
+            tag = re.sub(r'\bonsubmit\s*=\s*"[^"]*"', 'onsubmit="return false;"',
+                         tag, flags=re.IGNORECASE)
+        else:
+            tag = tag[:-1] + ' onsubmit="return false;">'
+        return tag
+    return _INNER_FORM_TAG_RE.sub(fix, html)
+
+
 def _inject_form_block(html: str) -> str:
     """Inject a 'Form disabled in archive' notice that intercepts submission of
     the inner Jetpack contact form (the ARG form behind the password gate)."""
@@ -1430,13 +1466,19 @@ class WaybackHandler(BaseHTTPRequestHandler):
         else:
             html = header + html
 
+        # Disable the inner ARG form on ANY snapshot that contains it, so it can
+        # never submit to the live site — regardless of JS or snapshot age. This
+        # is independent of the gate below: even old unlocked snapshots get the
+        # neutralized markup + the 'Form disabled in archive' modal.
+        if INNER_FORM_MARKER in html:
+            html = _neutralize_inner_form(html)
+            html = _inject_form_block(html)
+
         # Protected pages: re-create the password gate client-side over the
-        # unlocked content, and disable the inner ARG form. Only applies when the
-        # stored blob is the UNLOCKED content (contains the inner Jetpack form);
-        # older snapshots that stored the raw WordPress prompt are served as-is.
+        # unlocked content (only when the stored blob IS the unlocked content).
+        # Older snapshots that stored the raw WordPress prompt are served as-is.
         known_pw = cfg.PROTECTED_PAGES.get(page_path)
         if known_pw and INNER_FORM_MARKER in html:
-            html = _inject_form_block(html)
             html = _inject_password_gate(html, known_pw)
 
         # Inject navigation overlay before </body>

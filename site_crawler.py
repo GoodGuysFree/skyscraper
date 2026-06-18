@@ -407,6 +407,16 @@ def sanitize_html(soup: BeautifulSoup) -> None:
             form["method"] = "GET"
             form["onsubmit"] = "return false;"
 
+    # Neutralize the inner ARG form (Jetpack contact form). It is method=GET so
+    # the POST branch above skips it, and its action points at the live site —
+    # make it structurally inert so a dumb static server can't let it submit.
+    for form in soup.select('form.jetpack-contact-form__form, form[id^="jp-form-"]'):
+        form["action"] = "#"
+        form["method"] = "get"
+        form["onsubmit"] = "return false;"
+        for attr in [a for a in form.attrs if a.startswith("data-wp-on--")]:
+            del form[attr]
+
     # Remove wp-json / API links
     for link in soup.find_all("link", rel="https://api.w.org/"):
         link.decompose()
