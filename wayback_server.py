@@ -556,9 +556,9 @@ def _build_landing_page(error: str = "", latest_date: str = "",
   <div class="section">
     <div class="section-label">Credits &amp; Thanks</div>
     <p>
-      <!-- Add credits and thanks here -->
       Built and maintained by the GoodGuysFree community.
-      Thanks to everyone who contributed to solving the ARG.
+      Thanks to everyone who contributed to solving the ARG.<br>
+      Thanks to Ekimo1920 of Voyagers Haven for his work to trigger this site's crawler when his bot finds changes.
     </p>
   </div>
 
