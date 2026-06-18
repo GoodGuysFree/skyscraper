@@ -170,6 +170,10 @@ CANONICAL_IGNORE_PATTERNS = [
     # Previous/Next post navigation links: adding a page reshuffles the chain
     # for neighbouring posts but is not a content change.
     r'<a\b[^>]*>\s*(?:Previous|Next)\s*</a>',
+    # Jetpack contact form JWT rotates on every request.
+    r'<input[^>]*name=["\']jetpack_contact_form_jwt["\'][^>]*/?>',
+    # Akismet honeypot textarea value is dynamic anti-spam noise.
+    r'<textarea[^>]*name=["\']ak_hp_textarea["\'][^>]*>.*?</textarea>',
 ]
 
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────

@@ -562,13 +562,13 @@ def build_header_html(date: str, original_url: str,
             f'{label}</span></span>'
         )
 
-    _INBOX_COLORS = {"new": "#4ade80", "changed": "#fbbf24", "unchanged": "#555"}
+    _INBOX_COLORS = {"new": "#4ade80", "changed": "#fbbf24", "unchanged": "#e0e0e0"}
     inbox_html = ""
     if inbox_status is not None:
-        ic = _INBOX_COLORS.get(inbox_status, "#555")
+        ic = _INBOX_COLORS.get(inbox_status, "#e0e0e0")
         inbox_html = (
             f'<a href="/@{date}/inbox/" class="wb-inbox-link" '
-            f'style="color:{ic}" title="Inbox ({inbox_status})">Inbox</a>'
+            f'style="color:{ic}" title="Inbox ({inbox_status})">ARCHITECT INBOX</a>'
         )
 
     return f"""<!-- ═══ WB HEADER ═══ -->
@@ -590,6 +590,7 @@ def build_header_html(date: str, original_url: str,
   padding: 1px 6px; font-size: 10px; letter-spacing: 0.08em;
 }}
 #wb-topbar .wb-tb-right {{ display: flex; align-items: center; gap: 10px; white-space: nowrap; }}
+#wb-topbar .wb-tb-center {{ flex: 1; display: flex; align-items: center; justify-content: center; }}
 #wb-topbar .wb-tb-sep {{ color: #2e2e2e; }}
 #wb-topbar strong {{ color: #9ca3af; font-weight: normal; }}
 #wb-topbar .wb-tb-ggf {{
@@ -601,8 +602,8 @@ def build_header_html(date: str, original_url: str,
   letter-spacing: 0.05em; border: 1px solid;
 }}
 {'#wb-topbar .wb-diff-toggle{background:none;border:1px solid #2a2a2a;color:#555;font-family:inherit;font-size:10px;letter-spacing:.08em;padding:1px 7px;cursor:pointer;border-radius:2px}#wb-topbar .wb-diff-toggle:hover{border-color:#444;color:#999}' if show_diff_toggle else ''}
-#wb-topbar .wb-inbox-link {{ font-size: 10px; letter-spacing: 0.08em; text-decoration: none; }}
-#wb-topbar .wb-inbox-link:hover {{ opacity: 0.8; }}
+#wb-topbar .wb-inbox-link {{ font-size: 10px; letter-spacing: 0.12em; text-decoration: none; }}
+#wb-topbar .wb-inbox-link:hover {{ opacity: 0.75; }}
 </style>
 <div id="wb-topbar">
   <div class="wb-tb-left">
@@ -611,8 +612,8 @@ def build_header_html(date: str, original_url: str,
     <span>Now viewing snapshot: <strong>{date_display}</strong></span>
     {status_html}
   </div>
+  <div class="wb-tb-center">{inbox_html}</div>
   <div class="wb-tb-right">
-    {inbox_html}
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
     <span class="wb-tb-ggf">GGF</span>
   </div>
