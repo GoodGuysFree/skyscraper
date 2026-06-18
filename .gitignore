@@ -14,6 +14,9 @@ venv/
 *.log
 crawl.log
 
+# SQLite access log — runtime data, not code
+stats.db
+
 # Temp / editor artifacts
 *.swp
 *.swo

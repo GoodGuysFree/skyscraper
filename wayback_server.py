@@ -1539,7 +1539,7 @@ def main():
     WaybackHandler.manifests = cache
 
     # Initialize access log
-    db_path = os.path.join(cfg.MIRROR_DIR, "stats.db")
+    db_path = os.path.join(cfg.WORKSPACE_DIR, "stats.db")
     WaybackHandler.access_log = AccessLog(db_path)
     print(f"  Stats:     {db_path}")
 
