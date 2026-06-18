@@ -882,13 +882,16 @@ def build_header_html(date: str, original_url: str,
             f'style="color:{ic}" title="Inbox ({inbox_status})">ARCHITECT INBOX</a>'
         )
 
-    # Notice for backfilled (externally-sourced) snapshots — white text.
+    # Notice for backfilled (externally-sourced) snapshots — two pieces:
+    # a plain white italic credit, then a white-on-brown inaccuracy notice.
     old_html = ""
     if is_backfilled:
         old_html = (
+            '<span class="wb-tb-old-credit">[Old snapshot - thx vector_cmdr!]</span>'
+            '&nbsp;&nbsp;&nbsp;'
             '<span class="wb-tb-old" title="This snapshot was reconstructed from '
             'an external mirror and may not be fully accurate">'
-            'Old snapshot — may not be accurate (thx vector_cmdr!)</span>'
+            'NOTICE: May be inaccurate</span>'
         )
 
     return f"""<!-- ═══ WB HEADER ═══ -->
@@ -924,6 +927,9 @@ def build_header_html(date: str, original_url: str,
 {'#wb-topbar .wb-diff-toggle{background:none;border:1px solid #2a2a2a;color:#555;font-family:inherit;font-size:10px;letter-spacing:.08em;padding:1px 7px;cursor:pointer;border-radius:2px}#wb-topbar .wb-diff-toggle:hover{border-color:#444;color:#999}' if show_diff_toggle else ''}
 #wb-topbar .wb-inbox-link {{ font-size: 10px; letter-spacing: 0.12em; text-decoration: none; }}
 #wb-topbar .wb-inbox-link:hover {{ opacity: 0.75; }}
+#wb-topbar .wb-tb-old-credit {{
+  color: #ffffff; font-style: italic; font-size: 10px; letter-spacing: 0.08em;
+}}
 #wb-topbar .wb-tb-old {{
   color: #ffffff; font-size: 10px; letter-spacing: 0.08em;
   background: #3a2a00; border: 1px solid #6a5200; border-radius: 3px;
