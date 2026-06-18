@@ -287,6 +287,28 @@ class TestCanonicalHash:
         blob_hash = self._sha256(html)
         assert sc.canonical_hash(html) != blob_hash
 
+    def _scramble_anchor(self, data_word, visible):
+        return (f'<a class="scramble-text glitch-link" data-word="{data_word}" '
+                f'href="https://example.com">{visible}</a>')
+
+    def test_scramble_text_shuffle_ignored(self):
+        # Same data-word, different shuffles → same canonical hash
+        a = self._scramble_anchor("Connection detected", "nndCioeetct  ecoident")
+        b = self._scramble_anchor("Connection detected", "dctenoeiCnotnctd  ein")
+        assert sc.canonical_hash(a) == sc.canonical_hash(b)
+
+    def test_scramble_text_real_change_detected(self):
+        # Different data-word → different canonical hash
+        a = self._scramble_anchor("Connection detected", "nndCioeetct  ecoident")
+        b = self._scramble_anchor("Access granted",      "scAtc  asrengde")
+        assert sc.canonical_hash(a) != sc.canonical_hash(b)
+
+    def test_scramble_text_data_word_preserved_in_canonical(self):
+        # data-word attribute is retained — it's in the tag, not the stripped content
+        a = self._scramble_anchor("Message A", "shuffled")
+        b = self._scramble_anchor("Message B", "shuffled")
+        assert sc.canonical_hash(a) != sc.canonical_hash(b)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # skip-if-no-changes logic in crawl()

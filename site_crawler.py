@@ -531,13 +531,17 @@ def rewrite_css_assets(css_text: str, asset_map: dict, css_url: str) -> str:
 
 
 _CANONICAL_IGNORE_RES = [re.compile(p) for p in cfg.CANONICAL_IGNORE_PATTERNS]
+_CANONICAL_REPLACE_RES = [(re.compile(p, re.DOTALL), r)
+                          for p, r in cfg.CANONICAL_REPLACE_PATTERNS]
 
 
 def canonical_hash(html: str) -> str:
-    """SHA-256 of html after stripping known dynamic content (counters etc.)."""
+    """SHA-256 of html after stripping/normalizing known dynamic content."""
     normalized = html
     for pat in _CANONICAL_IGNORE_RES:
         normalized = pat.sub("", normalized)
+    for pat, repl in _CANONICAL_REPLACE_RES:
+        normalized = pat.sub(repl, normalized)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 

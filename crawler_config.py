@@ -176,6 +176,15 @@ CANONICAL_IGNORE_PATTERNS = [
     r'<textarea[^>]*name=["\']ak_hp_textarea["\'][^>]*>.*?</textarea>',
 ]
 
+# Regex replacements applied before hashing (pattern, replacement) pairs.
+# Use when the match must be kept but its variable inner content stripped.
+CANONICAL_REPLACE_PATTERNS = [
+    # scramble-text anchors: JS shuffles the visible text on every load but the
+    # real message lives in data-word. Strip the shuffled text, keep the tag so
+    # data-word changes are still detected as real content changes.
+    (r'(<a\b[^>]*\bclass="[^"]*\bscramble-text\b[^"]*"[^>]*>)[^<]*(</a>)', r'\1\2'),
+]
+
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────
 # Debounce: wait this many seconds after the last trigger before starting a crawl.
 # Coalesces rapid triggers into a single crawl.
