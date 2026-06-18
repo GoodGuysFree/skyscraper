@@ -948,21 +948,23 @@ font-family:inherit;cursor:pointer;border-radius:2px;font-size:0.85rem;">OK</but
 </script>"""
 
 
-# Opening tag of the inner Jetpack form, matched by class or jp-form- id.
-_INNER_FORM_TAG_RE = re.compile(
-    r'<form\b[^>]*?(?:jetpack-contact-form__form|id="jp-form-)[^>]*>',
-    re.IGNORECASE,
-)
+# Every form opening tag. We never let an archived form reach the live site.
+# (Our own injected forms — the synthetic gate — are added AFTER this runs, so
+# they are never matched here.)
+_FORM_TAG_RE = re.compile(r'<form\b[^>]*>', re.IGNORECASE)
 
 
-def _neutralize_inner_form(html: str) -> str:
-    """Make the inner ARG form structurally non-functional so it can NEVER submit
-    to the live site — independent of JavaScript or which snapshot served it.
+def _neutralize_all_forms(html: str) -> str:
+    """Make EVERY archived form structurally non-functional so none can submit to
+    the live site — independent of JavaScript or which snapshot served it. Covers
+    the WordPress password gate (-> wp-login.php), the inner ARG/Jetpack form, the
+    search form, comment forms, etc.
 
-    Rewrites the form's opening tag: action -> "#", method -> get, onsubmit ->
+    Rewrites each form's opening tag: action -> "#", method -> get, onsubmit ->
     return false, and strips the WordPress Interactivity directives
-    (data-wp-on--submit / --reset) that would otherwise fire an AJAX POST to the
-    real endpoint. The 'Form disabled in archive' modal is layered on top for UX.
+    (data-wp-on--submit / --reset) that would otherwise fire an AJAX request to
+    the real endpoint. Appearance is unchanged. The 'Form disabled in archive'
+    modal is layered on top of the inner ARG form for UX.
     """
     def fix(m: re.Match) -> str:
         tag = m.group(0)
@@ -971,8 +973,9 @@ def _neutralize_inner_form(html: str) -> str:
                          flags=re.IGNORECASE)
         else:
             tag = tag[:-1] + ' action="#">'
-        tag = re.sub(r'\bmethod\s*=\s*"[^"]*"', 'method="get"', tag,
-                     flags=re.IGNORECASE)
+        if re.search(r'\bmethod\s*=\s*"[^"]*"', tag, re.IGNORECASE):
+            tag = re.sub(r'\bmethod\s*=\s*"[^"]*"', 'method="get"', tag,
+                         flags=re.IGNORECASE)
         tag = re.sub(r'\sdata-wp-on--(?:submit|reset)\s*=\s*"[^"]*"', '', tag,
                      flags=re.IGNORECASE)
         if re.search(r'\bonsubmit\s*=', tag, re.IGNORECASE):
@@ -981,7 +984,7 @@ def _neutralize_inner_form(html: str) -> str:
         else:
             tag = tag[:-1] + ' onsubmit="return false;">'
         return tag
-    return _INNER_FORM_TAG_RE.sub(fix, html)
+    return _FORM_TAG_RE.sub(fix, html)
 
 
 def _inject_form_block(html: str) -> str:
@@ -1466,12 +1469,15 @@ class WaybackHandler(BaseHTTPRequestHandler):
         else:
             html = header + html
 
-        # Disable the inner ARG form on ANY snapshot that contains it, so it can
-        # never submit to the live site — regardless of JS or snapshot age. This
-        # is independent of the gate below: even old unlocked snapshots get the
-        # neutralized markup + the 'Form disabled in archive' modal.
+        # Neutralize EVERY archived form so none can submit to the live site —
+        # the password gate (-> wp-login.php), the inner ARG form, search, etc.
+        # Runs before any injection below, so our own synthetic forms are safe.
+        if "<form" in html.lower():
+            html = _neutralize_all_forms(html)
+
+        # Add the 'Form disabled in archive' modal over the inner ARG form (UX on
+        # top of the structural neutralization above).
         if INNER_FORM_MARKER in html:
-            html = _neutralize_inner_form(html)
             html = _inject_form_block(html)
 
         # Protected pages: re-create the password gate client-side over the

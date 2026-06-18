@@ -395,22 +395,12 @@ def sanitize_html(soup: BeautifulSoup) -> None:
                 script.decompose()
                 break
 
-    # Neutralize POST forms (they have nowhere to submit in the archive) without
-    # altering the page's appearance — no visible marker.
+    # Neutralize EVERY form so none can submit to the live site, even on a dumb
+    # static server: rewrite action to "#", force GET, disable submit, and strip
+    # the WordPress Interactivity directives that fire AJAX. Appearance is
+    # unchanged (no visible marker). Covers the password gate, the inner ARG /
+    # Jetpack form, the search form, comment forms, etc.
     for form in soup.find_all("form"):
-        method = (form.get("method") or "GET").upper()
-        if method == "POST":
-            # Don't disable the password form — we already submitted it.
-            # If it's still here, it means we failed to enter the password.
-            if form.find("input", {"name": "post_password"}):
-                continue
-            form["method"] = "GET"
-            form["onsubmit"] = "return false;"
-
-    # Neutralize the inner ARG form (Jetpack contact form). It is method=GET so
-    # the POST branch above skips it, and its action points at the live site —
-    # make it structurally inert so a dumb static server can't let it submit.
-    for form in soup.select('form.jetpack-contact-form__form, form[id^="jp-form-"]'):
         form["action"] = "#"
         form["method"] = "get"
         form["onsubmit"] = "return false;"

@@ -1134,12 +1134,12 @@ class TestInjectFormBlock:
         result = ws._inject_form_block(html)
         assert "Form disabled in archive" in result
 
-    # ── _neutralize_inner_form: structural, JS-independent ──────────────────
-    def test_neutralize_rewrites_action_to_hash(self):
+    # ── _neutralize_all_forms: structural, JS-independent, ALL forms ────────
+    def test_neutralize_rewrites_action(self):
         html = ('<form class="jetpack-contact-form__form" method="GET" '
                 'action="https://project-skyscraper.com/request-memory-timestamp-094317/" '
                 'data-wp-on--submit="actions.onFormSubmit">x</form>')
-        result = ws._neutralize_inner_form(html)
+        result = ws._neutralize_all_forms(html)
         assert 'action="#"' in result
         assert "project-skyscraper.com/request-memory" not in result
 
@@ -1147,23 +1147,36 @@ class TestInjectFormBlock:
         html = ('<form id="jp-form-abc" method="get" action="https://x/" '
                 'data-wp-on--submit="actions.onFormSubmit" '
                 'data-wp-on--reset="actions.onFormReset">x</form>')
-        result = ws._neutralize_inner_form(html)
+        result = ws._neutralize_all_forms(html)
         assert "data-wp-on--submit" not in result
         assert "data-wp-on--reset" not in result
 
     def test_neutralize_sets_onsubmit_return_false(self):
         html = '<form class="jetpack-contact-form__form" action="https://x/">x</form>'
-        result = ws._neutralize_inner_form(html)
+        result = ws._neutralize_all_forms(html)
         assert 'onsubmit="return false;"' in result
 
-    def test_neutralize_leaves_other_forms_untouched(self):
-        html = '<form class="post-password-form" action="https://x/wp-login.php">x</form>'
-        result = ws._neutralize_inner_form(html)
-        assert result == html  # gate form is not an inner ARG form
+    def test_neutralize_disables_password_gate_form(self):
+        # The WP gate form (-> wp-login.php) must ALSO be made inert.
+        html = ('<form class="post-password-form" method="post" '
+                'action="https://project-skyscraper.com/wp-login.php?action=postpass">'
+                '<input name="post_password"></form>')
+        result = ws._neutralize_all_forms(html)
+        assert 'action="#"' in result
+        assert "wp-login.php" not in result
+        assert 'onsubmit="return false;"' in result
+
+    def test_neutralize_disables_search_and_comment_forms(self):
+        html = ('<form role="search" method="get" action="https://x/">a</form>'
+                '<form id="commentform" method="post" action="https://x/wp-comments-post.php">b</form>')
+        result = ws._neutralize_all_forms(html)
+        assert result.count('action="#"') == 2
+        assert "wp-comments-post.php" not in result
+        assert "https://x/" not in result
 
     def test_neutralize_no_action_attr_adds_one(self):
         html = '<form class="jetpack-contact-form__form" method="get">x</form>'
-        result = ws._neutralize_inner_form(html)
+        result = ws._neutralize_all_forms(html)
         assert 'action="#"' in result
 
     def test_targets_jetpack_form_selector_not_post_password(self):
