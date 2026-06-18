@@ -909,11 +909,16 @@ def build_header_html(date: str, original_url: str,
 <!-- ═══ END WB HEADER ═══ -->"""
 
 
+# Marker that identifies UNLOCKED protected-page content: the inner Jetpack
+# contact form (the ARG form behind the password). Its presence means the blob
+# holds the real content, not the WordPress password prompt.
+INNER_FORM_MARKER = "jetpack-contact-form__form"
+
 _FORM_BLOCK_SNIPPET = """\
 <div id="wb-form-block" style="display:none;position:fixed;top:50%;left:50%;
 transform:translate(-50%,-50%);background:#1a1a1a;border:1px solid #555;
 color:#e0e0e0;font-family:'IBM Plex Mono','Courier New',monospace;
-padding:1.5rem 2rem;z-index:99999;text-align:center;border-radius:4px;
+padding:1.5rem 2rem;z-index:2147483647;text-align:center;border-radius:4px;
 box-shadow:0 4px 24px rgba(0,0,0,0.85);">
 <p style="margin:0 0 1rem;font-size:0.95rem;letter-spacing:0.04em;">
 Form disabled in archive</p>
@@ -923,14 +928,20 @@ font-family:inherit;cursor:pointer;border-radius:2px;font-size:0.85rem;">OK</but
 </div>
 <script>
 (function(){
+  function block(e){
+    e.preventDefault();
+    e.stopPropagation();
+    document.getElementById('wb-form-block').style.display='block';
+  }
   document.addEventListener('DOMContentLoaded',function(){
-    document.querySelectorAll('form').forEach(function(f){
-      if(f.querySelector('input[name="post_password"]')){
-        f.addEventListener('submit',function(e){
-          e.preventDefault();
-          document.getElementById('wb-form-block').style.display='block';
-        });
-      }
+    document.querySelectorAll(
+      'form.jetpack-contact-form__form, form[id^="jp-form-"]'
+    ).forEach(function(f){
+      // The form already has onsubmit="return false" + AJAX, so intercept the
+      // submit button click (capture phase) as well as the submit event.
+      f.addEventListener('submit', block, true);
+      f.querySelectorAll('button[type="submit"], input[type="submit"]')
+       .forEach(function(b){ b.addEventListener('click', block, true); });
     });
   });
 })();
@@ -938,12 +949,77 @@ font-family:inherit;cursor:pointer;border-radius:2px;font-size:0.85rem;">OK</but
 
 
 def _inject_form_block(html: str) -> str:
-    """Inject a form-disabled notice into any page with a post_password form."""
+    """Inject a 'Form disabled in archive' notice that intercepts submission of
+    the inner Jetpack contact form (the ARG form behind the password gate)."""
     if "</body>" in html:
         return html.replace("</body>", _FORM_BLOCK_SNIPPET + "\n</body>", 1)
     if "</html>" in html:
         return html.replace("</html>", _FORM_BLOCK_SNIPPET + "\n</html>", 1)
     return html + _FORM_BLOCK_SNIPPET
+
+
+def _inject_password_gate(html: str, password: str) -> str:
+    """Re-create the WordPress post-password gate client-side over unlocked
+    content. A full-screen overlay (shown only with JS) asks for the password;
+    the typed value's SHA-256 is compared to the embedded hash in-browser.
+
+    The literal password is never sent to the client (only its hash), honoring
+    the 'PAGE_PASSWORD must not appear in responses' rule. No-JS visitors see the
+    content directly (the overlay stays hidden), keeping the archive readable
+    without JavaScript. crypto.subtle requires a secure context (https or
+    localhost) — production is behind TLS, so validation works there.
+    """
+    pw_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    snippet = """\
+<div id="wb-pwgate" style="display:none;position:fixed;inset:0;
+z-index:2147483646;background:#0d0d0d;color:#e0e0e0;
+font-family:'IBM Plex Mono','Courier New',monospace;
+flex-direction:column;align-items:center;justify-content:center;padding:2rem;">
+<div style="max-width:440px;width:100%;text-align:center;">
+<p style="margin:0 0 1.25rem;letter-spacing:0.05em;line-height:1.5;">
+This content is password protected. To view it, enter the password below.</p>
+<form id="wb-pwgate-form" autocomplete="off">
+<input id="wb-pwgate-input" type="password" placeholder="Password"
+style="background:#000;color:#e0e0e0;border:1px solid #555;padding:0.5rem 0.75rem;
+font-family:inherit;font-size:0.95rem;width:60%;border-radius:2px;" autofocus>
+<button type="submit" style="background:#333;color:#e0e0e0;border:1px solid #666;
+padding:0.5rem 1.25rem;margin-left:0.5rem;font-family:inherit;cursor:pointer;
+border-radius:2px;font-size:0.9rem;">Enter</button>
+</form>
+<p id="wb-pwgate-err" style="display:none;color:#f87171;margin-top:0.9rem;
+font-size:0.85rem;">Incorrect password.</p>
+</div></div>
+<script>
+(function(){
+  var H="__HASH__";
+  var gate=document.getElementById('wb-pwgate');
+  // JS shows the gate; without JS the content is simply visible.
+  gate.style.display='flex';
+  document.documentElement.style.overflow='hidden';
+  function hex(buf){return Array.from(new Uint8Array(buf))
+    .map(function(b){return b.toString(16).padStart(2,'0');}).join('');}
+  document.getElementById('wb-pwgate-form').addEventListener('submit',
+    async function(e){
+      e.preventDefault();
+      var v=document.getElementById('wb-pwgate-input').value;
+      try{
+        var d=await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(v));
+        if(hex(d)===H){
+          gate.style.display='none';
+          document.documentElement.style.overflow='';
+          return;
+        }
+      }catch(err){}
+      document.getElementById('wb-pwgate-err').style.display='block';
+    });
+})();
+</script>""".replace("__HASH__", pw_hash)
+    if "</body>" in html:
+        return html.replace("</body>", snippet + "\n</body>", 1)
+    if "</html>" in html:
+        return html.replace("</html>", snippet + "\n</html>", 1)
+    return html + snippet
 
 
 def build_overlay_html(current_date: str, manifests,
@@ -1354,9 +1430,14 @@ class WaybackHandler(BaseHTTPRequestHandler):
         else:
             html = header + html
 
-        # On password-prompt pages, block form submission with an archive notice.
-        if 'name="post_password"' in html:
+        # Protected pages: re-create the password gate client-side over the
+        # unlocked content, and disable the inner ARG form. Only applies when the
+        # stored blob is the UNLOCKED content (contains the inner Jetpack form);
+        # older snapshots that stored the raw WordPress prompt are served as-is.
+        known_pw = cfg.PROTECTED_PAGES.get(page_path)
+        if known_pw and INNER_FORM_MARKER in html:
             html = _inject_form_block(html)
+            html = _inject_password_gate(html, known_pw)
 
         # Inject navigation overlay before </body>
         overlay = build_overlay_html(

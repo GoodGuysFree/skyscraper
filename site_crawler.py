@@ -689,15 +689,41 @@ class SiteCrawler:
         print(f"  📄 {path}")
 
         try:
+            # Clear cookies before every page so a wp-postpass cookie set while
+            # unlocking one protected page can't silently unlock a different
+            # same-password page later. Each page is captured in a clean state;
+            # only pages we explicitly unlock below get unlocked.
+            try:
+                pw_page.context.clear_cookies()
+            except Exception:
+                pass
+
             pw_page.goto(url, wait_until="load", timeout=cfg.PAGE_LOAD_TIMEOUT_MS)
             pw_page.wait_for_timeout(800)
 
-            # Password-protected pages: do NOT auto-submit. Store the prompt as-is
-            # so wayback users see the authentic first-visit experience.
-            # (Submitting any password sets a wp-postpass cookie that silently
-            # unlocks all same-password pages later in the same crawl session.)
+            # Password-protected pages: submit the known password ONLY for pages
+            # we deliberately unlock (cfg.PROTECTED_PAGES), so the archive stores
+            # the real content. The server re-gates them client-side. Pages not in
+            # the map keep their authentic password prompt (we don't submit).
             if pw_page.locator('input[name="post_password"]').count() > 0:
-                print(f"    🔑 Password protected — storing prompt (not submitting)")
+                known_pw = cfg.PROTECTED_PAGES.get(path)
+                if known_pw:
+                    print(f"    🔑 Password protected — submitting to capture content")
+                    try:
+                        pw_page.fill('input[name="post_password"]', known_pw)
+                        pw_page.locator(
+                            'form.post-password-form button[type="submit"], '
+                            'form.post-password-form input[type="submit"]'
+                        ).first.click()
+                        pw_page.wait_for_load_state(
+                            "load", timeout=cfg.PAGE_LOAD_TIMEOUT_MS)
+                        pw_page.wait_for_timeout(800)
+                        if pw_page.locator('input[name="post_password"]').count() > 0:
+                            print(f"    ⚠ password did not unlock — storing prompt")
+                    except Exception as e:
+                        print(f"    ⚠ unlock failed ({e}) — storing prompt")
+                else:
+                    print(f"    🔑 Password protected — storing prompt (not submitting)")
 
             # Scroll through the page to trigger lazy-loaded images so the
             # response listener captures them.

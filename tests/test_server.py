@@ -1109,35 +1109,67 @@ class TestStatsHtml:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# _inject_form_block
+# _inject_form_block — targets the INNER Jetpack form, not the password gate
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestInjectFormBlock:
     def test_injects_into_body_tag(self):
-        html = "<html><body><form><input name='post_password'></form></body></html>"
+        html = '<html><body><form class="jetpack-contact-form__form"></form></body></html>'
         result = ws._inject_form_block(html)
         assert "wb-form-block" in result
         assert result.index("wb-form-block") < result.index("</body>")
 
     def test_injects_into_html_tag_when_no_body(self):
-        html = "<html><form><input name='post_password'></form></html>"
+        html = '<html><form class="jetpack-contact-form__form"></form></html>'
         result = ws._inject_form_block(html)
         assert "wb-form-block" in result
 
     def test_appends_when_no_closing_tags(self):
-        html = "<form><input name='post_password'></form>"
+        html = '<form class="jetpack-contact-form__form"></form>'
         result = ws._inject_form_block(html)
         assert "wb-form-block" in result
 
-    def test_not_double_injected(self):
-        html = "<html><body><form><input name='post_password'></form></body></html>"
-        result = ws._inject_form_block(html)
-        # div id + getElementById in script + getElementById in button onclick = 3
-        assert result.count("wb-form-block") == 3
-
-    def test_serve_page_injects_on_password_form(self):
-        html = '<html><body><form><input name="post_password"><input type="submit"></form></body></html>'
-        assert 'name="post_password"' in html
+    def test_shows_form_disabled_message(self):
+        html = '<html><body><form class="jetpack-contact-form__form"></form></body></html>'
         result = ws._inject_form_block(html)
         assert "Form disabled in archive" in result
-        assert "post_password" in result
+
+    def test_targets_jetpack_form_selector_not_post_password(self):
+        # The block JS must hook the Jetpack form, NOT the WordPress gate form.
+        html = '<html><body><form class="jetpack-contact-form__form"></form></body></html>'
+        result = ws._inject_form_block(html)
+        assert "jetpack-contact-form__form" in result
+        assert 'input[name="post_password"]' not in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _inject_password_gate — client-side re-creation of the WP post-password gate
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestInjectPasswordGate:
+    def test_injects_gate_overlay(self):
+        html = "<html><body><p>secret</p></body></html>"
+        result = ws._inject_password_gate(html, "EMILY")
+        assert "wb-pwgate" in result
+        assert result.index("wb-pwgate") < result.index("</body>")
+
+    def test_embeds_hash_not_plaintext(self):
+        # Literal password must never appear; only its SHA-256.
+        html = "<html><body><p>secret</p></body></html>"
+        result = ws._inject_password_gate(html, "EMILY")
+        assert "EMILY" not in result
+        assert hashlib.sha256(b"EMILY").hexdigest() in result
+
+    def test_different_passwords_embed_different_hashes(self):
+        html = "<html><body></body></html>"
+        a = ws._inject_password_gate(html, "EMILY")
+        b = ws._inject_password_gate(html, "EVENT HORIZON")
+        assert hashlib.sha256(b"EMILY").hexdigest() in a
+        assert hashlib.sha256(b"EVENT HORIZON").hexdigest() in b
+        assert hashlib.sha256(b"EVENT HORIZON").hexdigest() not in a
+
+    def test_content_remains_in_dom(self):
+        # Content stays (gate is cosmetic / no-JS readable); overlay sits on top.
+        html = "<html><body><p>the secret content</p></body></html>"
+        result = ws._inject_password_gate(html, "EMILY")
+        assert "the secret content" in result

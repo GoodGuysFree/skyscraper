@@ -14,6 +14,23 @@ SITE_ORIGIN = f"https://{SITE_DOMAIN}"
 SITEMAP_URL = f"{SITE_ORIGIN}/sitemap.xml"
 PAGE_PASSWORD = "EMILY"
 
+# ── Password-protected pages ─────────────────────────────────────────────────
+# Pages behind a WordPress post-password gate whose content the crawler should
+# UNLOCK and capture (by submitting the password), so the archive holds the real
+# content. The server then re-creates the gate CLIENT-SIDE (validates the typed
+# password in-browser) so wayback visitors still experience entering it.
+#
+# These passwords are PUBLIC ARG answers (already on YouTube / community forums),
+# not secrets — embedding them client-side is acceptable. See OPERATIONS.local.md
+# §Secrets posture.
+#
+# Path keys are normalized with a trailing slash. To gate a new page, add it here
+# (the crawler will submit the password; the server will gate + validate it).
+PROTECTED_PAGES = {
+    "/request-memory-timestamp-094317/": "EMILY",
+    "/report-bru-ent-reunion-peak/": "EVENT HORIZON",
+}
+
 # ── Local Paths ──────────────────────────────────────────────────────────────
 # WORKSPACE_DIR is portable: it defaults to the directory containing this file
 # (so the code runs wherever it's deployed — Windows or Linux), and can be
