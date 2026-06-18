@@ -1475,10 +1475,12 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html = _inject_form_block(html)
 
         # Protected pages: re-create the password gate client-side over the
-        # unlocked content (only when the stored blob IS the unlocked content).
-        # Older snapshots that stored the raw WordPress prompt are served as-is.
+        # unlocked content. "Unlocked" = the blob no longer carries the WordPress
+        # post_password prompt (some protected pages, e.g. Brussels, have no inner
+        # form, so presence of the WP prompt — not the inner form — is the signal).
+        # Older snapshots that stored the raw prompt are served as-is.
         known_pw = cfg.PROTECTED_PAGES.get(page_path)
-        if known_pw and INNER_FORM_MARKER in html:
+        if known_pw and 'name="post_password"' not in html:
             html = _inject_password_gate(html, known_pw)
 
         # Inject navigation overlay before </body>
