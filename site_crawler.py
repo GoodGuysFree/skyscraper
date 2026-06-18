@@ -1033,9 +1033,11 @@ class SiteCrawler:
                         if path not in curr_pages:
                             changes["pages_removed"].append(path)
 
-                    prev_assets = set(prev.get("assets", {}).keys())
-                    curr_assets = set(manifest.get("assets", {}).keys())
-                    changes["assets_added"] = len(curr_assets - prev_assets)
+                    prev_asset_urls = {v["original_url"]
+                                       for v in prev.get("assets", {}).values()}
+                    curr_asset_urls = {v["original_url"]
+                                       for v in manifest.get("assets", {}).values()}
+                    changes["assets_added"] = len(curr_asset_urls - prev_asset_urls)
 
         n_add = len(changes["pages_added"])
         n_mod = len(changes["pages_modified"])

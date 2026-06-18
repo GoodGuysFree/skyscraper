@@ -375,3 +375,58 @@ class TestSkipUnchangedSnapshot:
         changes = _empty_changes(previous_date=None)
         snap_dir = self._run_crawl(tmp_path, changes)
         assert any(snap_dir.iterdir())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _compute_changes — asset counting by original URL
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _make_manifest(pages=None, assets=None):
+    """Minimal manifest dict for _compute_changes tests."""
+    return {"pages": pages or {}, "assets": assets or {}}
+
+def _asset(url, sha="aabbcc"):
+    return {"original_url": url, "content_type": "image/png", "size": 100, "sha256": sha}
+
+
+class TestComputeChangesAssets:
+    def _run(self, tmp_path, prev_manifest, curr_manifest):
+        snap_dir = tmp_path / "snapshots"
+        prev_dir = snap_dir / "2026-06-17T0000"
+        prev_dir.mkdir(parents=True)
+        import json
+        (prev_dir / "manifest.json").write_text(json.dumps(prev_manifest))
+        with patch.object(sc.cfg, "SNAPSHOT_DIR", str(snap_dir)):
+            crawler = sc.SiteCrawler.__new__(sc.SiteCrawler)
+            return crawler._compute_changes("2026-06-18T0000", curr_manifest)
+
+    def test_genuinely_new_url_counted(self, tmp_path):
+        prev = _make_manifest(assets={"/_assets/aa/old.png": _asset("https://example.com/img/old.png")})
+        curr = _make_manifest(assets={
+            "/_assets/aa/old.png": _asset("https://example.com/img/old.png"),
+            "/_assets/bb/new.png": _asset("https://example.com/img/new.png"),
+        })
+        changes = self._run(tmp_path, prev, curr)
+        assert changes["assets_added"] == 1
+
+    def test_same_url_new_hash_not_counted(self, tmp_path):
+        # Same original_url, different blob hash (e.g. image re-encoded) — not a new asset
+        prev = _make_manifest(assets={"/_assets/aa/hash1.png": _asset("https://example.com/img/logo.png", sha="hash1")})
+        curr = _make_manifest(assets={"/_assets/bb/hash2.png": _asset("https://example.com/img/logo.png", sha="hash2")})
+        changes = self._run(tmp_path, prev, curr)
+        assert changes["assets_added"] == 0
+
+    def test_no_previous_assets_all_counted(self, tmp_path):
+        prev = _make_manifest()
+        curr = _make_manifest(assets={
+            "/_assets/aa/a.png": _asset("https://example.com/a.png"),
+            "/_assets/bb/b.png": _asset("https://example.com/b.png"),
+        })
+        changes = self._run(tmp_path, prev, curr)
+        assert changes["assets_added"] == 2
+
+    def test_no_new_assets_zero(self, tmp_path):
+        prev = _make_manifest(assets={"/_assets/aa/x.png": _asset("https://example.com/x.png")})
+        curr = _make_manifest(assets={"/_assets/aa/x.png": _asset("https://example.com/x.png")})
+        changes = self._run(tmp_path, prev, curr)
+        assert changes["assets_added"] == 0
