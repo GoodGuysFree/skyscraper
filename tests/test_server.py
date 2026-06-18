@@ -1106,3 +1106,38 @@ class TestStatsHtml:
         result = ws._build_stats_html(stats)
         assert "<script>alert(1)</script>" not in result
         assert "&lt;script&gt;" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _inject_form_block
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestInjectFormBlock:
+    def test_injects_into_body_tag(self):
+        html = "<html><body><form><input name='post_password'></form></body></html>"
+        result = ws._inject_form_block(html)
+        assert "wb-form-block" in result
+        assert result.index("wb-form-block") < result.index("</body>")
+
+    def test_injects_into_html_tag_when_no_body(self):
+        html = "<html><form><input name='post_password'></form></html>"
+        result = ws._inject_form_block(html)
+        assert "wb-form-block" in result
+
+    def test_appends_when_no_closing_tags(self):
+        html = "<form><input name='post_password'></form>"
+        result = ws._inject_form_block(html)
+        assert "wb-form-block" in result
+
+    def test_not_double_injected(self):
+        html = "<html><body><form><input name='post_password'></form></body></html>"
+        result = ws._inject_form_block(html)
+        # div id + getElementById in script + getElementById in button onclick = 3
+        assert result.count("wb-form-block") == 3
+
+    def test_serve_page_injects_on_password_form(self):
+        html = '<html><body><form><input name="post_password"><input type="submit"></form></body></html>'
+        assert 'name="post_password"' in html
+        result = ws._inject_form_block(html)
+        assert "Form disabled in archive" in result
+        assert "post_password" in result

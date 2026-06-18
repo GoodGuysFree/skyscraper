@@ -909,6 +909,43 @@ def build_header_html(date: str, original_url: str,
 <!-- ═══ END WB HEADER ═══ -->"""
 
 
+_FORM_BLOCK_SNIPPET = """\
+<div id="wb-form-block" style="display:none;position:fixed;top:50%;left:50%;
+transform:translate(-50%,-50%);background:#1a1a1a;border:1px solid #555;
+color:#e0e0e0;font-family:'IBM Plex Mono','Courier New',monospace;
+padding:1.5rem 2rem;z-index:99999;text-align:center;border-radius:4px;
+box-shadow:0 4px 24px rgba(0,0,0,0.85);">
+<p style="margin:0 0 1rem;font-size:0.95rem;letter-spacing:0.04em;">
+Form disabled in archive</p>
+<button onclick="document.getElementById('wb-form-block').style.display='none'"
+style="background:#333;color:#e0e0e0;border:1px solid #666;padding:0.35rem 1.2rem;
+font-family:inherit;cursor:pointer;border-radius:2px;font-size:0.85rem;">OK</button>
+</div>
+<script>
+(function(){
+  document.addEventListener('DOMContentLoaded',function(){
+    document.querySelectorAll('form').forEach(function(f){
+      if(f.querySelector('input[name="post_password"]')){
+        f.addEventListener('submit',function(e){
+          e.preventDefault();
+          document.getElementById('wb-form-block').style.display='block';
+        });
+      }
+    });
+  });
+})();
+</script>"""
+
+
+def _inject_form_block(html: str) -> str:
+    """Inject a form-disabled notice into any page with a post_password form."""
+    if "</body>" in html:
+        return html.replace("</body>", _FORM_BLOCK_SNIPPET + "\n</body>", 1)
+    if "</html>" in html:
+        return html.replace("</html>", _FORM_BLOCK_SNIPPET + "\n</html>", 1)
+    return html + _FORM_BLOCK_SNIPPET
+
+
 def build_overlay_html(current_date: str, manifests,
                        changes: dict | None, current_path: str) -> str:
     """Build the floating navigation overlay injected into every HTML page."""
@@ -1316,6 +1353,10 @@ class WaybackHandler(BaseHTTPRequestHandler):
             html = html[:end] + "\n" + header + html[end:]
         else:
             html = header + html
+
+        # On password-prompt pages, block form submission with an archive notice.
+        if 'name="post_password"' in html:
+            html = _inject_form_block(html)
 
         # Inject navigation overlay before </body>
         overlay = build_overlay_html(
