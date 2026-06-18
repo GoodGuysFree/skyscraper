@@ -18,6 +18,8 @@ import hmac
 import hashlib
 import threading
 import subprocess
+import html
+import sqlite3
 import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
@@ -32,6 +34,291 @@ import crawler_config as cfg
 sys.stdout.reconfigure(encoding="utf-8")
 
 INTERNAL_HOSTS = {cfg.SITE_DOMAIN, f"www.{cfg.SITE_DOMAIN}"}
+
+
+# ─── Access Log ──────────────────────────────────────────────────────────────
+
+class AccessLog:
+    """SQLite-backed access log. Thread-safe: one write-connection + Lock;
+    stats reads open a separate read-only connection so they never block writers."""
+
+    _SKIP = ("/_assets/", "/~api/", "/_static/", "/favicon.")
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        self._conn = self._open()
+
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS access_log (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts      REAL    NOT NULL,
+                ip      TEXT    NOT NULL,
+                path    TEXT    NOT NULL,
+                status  INTEGER NOT NULL,
+                bytes   INTEGER NOT NULL,
+                ua      TEXT,
+                referer TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_ts     ON access_log(ts);
+            CREATE INDEX IF NOT EXISTS idx_ip_ts  ON access_log(ip, ts);
+            CREATE INDEX IF NOT EXISTS idx_path   ON access_log(path);
+        """)
+        conn.commit()
+        return conn
+
+    def record(self, ip: str, path: str, status: int, bytes_sent: int,
+               ua: str | None = None, referer: str | None = None) -> None:
+        if any(path.startswith(p) for p in self._SKIP):
+            return
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO access_log(ts,ip,path,status,bytes,ua,referer) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (time.time(), ip, path, status, bytes_sent, ua, referer),
+            )
+            self._conn.commit()
+
+    def stats(self) -> dict:
+        with sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True) as c:
+            return _compute_stats(c)
+
+
+def _compute_sessions(rows: list[tuple]) -> tuple[int, list[float]]:
+    """Split per-IP request stream into sessions on >30min idle gap.
+
+    rows: list of (ts: float, ip: str), already sorted by ip then ts.
+    Returns (session_count, list_of_durations_in_seconds).
+    """
+    state: dict[str, tuple[float, float]] = {}  # ip -> (session_start, last_ts)
+    completed: list[float] = []
+
+    for ts, ip in rows:
+        if ip in state:
+            start, last = state[ip]
+            if ts - last > 1800:
+                completed.append(last - start)
+                state[ip] = (ts, ts)
+            else:
+                state[ip] = (start, ts)
+        else:
+            state[ip] = (ts, ts)
+
+    for start, last in state.values():
+        completed.append(last - start)
+
+    return len(completed), completed
+
+
+def _compute_stats(conn: sqlite3.Connection) -> dict:
+    """Compute stats dict from a SQLite connection (read-only safe)."""
+    now = time.time()
+    DAY, WEEK = 86_400, 7 * 86_400
+
+    def scalar(sql, *args):
+        r = conn.execute(sql, args).fetchone()
+        return (r[0] or 0) if r else 0
+
+    summary = {
+        "total_today":       scalar("SELECT COUNT(*) FROM access_log WHERE ts>?", now - DAY),
+        "unique_ips_today":  scalar("SELECT COUNT(DISTINCT ip) FROM access_log WHERE ts>?", now - DAY),
+        "total_week":        scalar("SELECT COUNT(*) FROM access_log WHERE ts>?", now - WEEK),
+        "unique_ips_week":   scalar("SELECT COUNT(DISTINCT ip) FROM access_log WHERE ts>?", now - WEEK),
+        "total_all":         scalar("SELECT COUNT(*) FROM access_log"),
+    }
+
+    # 24-bucket hourly histogram (last 7 days)
+    hourly = [0] * 24
+    for h, cnt in conn.execute(
+        "SELECT CAST(strftime('%H', ts, 'unixepoch') AS INTEGER), COUNT(*) "
+        "FROM access_log WHERE ts>? GROUP BY 1", (now - WEEK,)
+    ):
+        hourly[h] = cnt
+
+    # Daily trend — last 14 days
+    daily = conn.execute(
+        "SELECT date(ts,'unixepoch'), COUNT(*), COUNT(DISTINCT ip) "
+        "FROM access_log WHERE ts>? GROUP BY 1 ORDER BY 1",
+        (now - 14 * DAY,)
+    ).fetchall()
+
+    # Top 20 paths by hits (last 30 days, status=200 only)
+    top_paths = conn.execute(
+        "SELECT path, COUNT(*) FROM access_log "
+        "WHERE ts>? AND status=200 GROUP BY path ORDER BY 2 DESC LIMIT 20",
+        (now - 30 * DAY,)
+    ).fetchall()
+
+    # Sessions (last 30 days)
+    rows = conn.execute(
+        "SELECT ts, ip FROM access_log WHERE ts>? ORDER BY ip, ts",
+        (now - 30 * DAY,)
+    ).fetchall()
+    session_count, durations = _compute_sessions(rows)
+    avg_dur = sum(durations) / len(durations) if durations else 0
+
+    return {
+        "summary":      summary,
+        "hourly":       hourly,
+        "daily":        [(d, r, u) for d, r, u in daily],
+        "top_paths":    [(p, h) for p, h in top_paths],
+        "sessions":     session_count,
+        "avg_duration": avg_dur,
+    }
+
+
+def _compute_stats_empty() -> dict:
+    """Return a zero-filled stats dict for when no AccessLog is initialized."""
+    return {
+        "summary": {
+            "total_today":      0,
+            "unique_ips_today": 0,
+            "total_week":       0,
+            "unique_ips_week":  0,
+            "total_all":        0,
+        },
+        "hourly":       [0] * 24,
+        "daily":        [],
+        "top_paths":    [],
+        "sessions":     0,
+        "avg_duration": 0,
+    }
+
+
+def _build_stats_html(stats: dict) -> str:
+    """Build the /~api/stats HTML page."""
+    s = stats["summary"]
+    hourly = stats["hourly"]
+    daily = stats["daily"]
+    top_paths = stats["top_paths"]
+    sessions = stats["sessions"]
+    avg_dur = stats["avg_duration"]
+    avg_min = round(avg_dur / 60, 1)
+
+    # Hourly histogram bars
+    max_h = max(hourly) if any(hourly) else 1
+    hour_bars = []
+    for i, cnt in enumerate(hourly):
+        pct = round(cnt / max_h * 100) if max_h else 0
+        hour_bars.append(
+            f'<div class="hbar-row">'
+            f'<span class="hbar-label">{i:02d}</span>'
+            f'<div class="hbar-track">'
+            f'<div class="hbar-fill" style="width:{pct}%"></div>'
+            f'</div>'
+            f'<span class="hbar-cnt">{cnt}</span>'
+            f'</div>'
+        )
+    hour_bars_html = "\n".join(hour_bars)
+
+    # Daily trend table rows
+    daily_rows = []
+    for day, req, ips in daily:
+        daily_rows.append(
+            f"<tr><td>{day}</td><td>{req}</td><td>{ips}</td></tr>"
+        )
+    daily_html = "\n".join(daily_rows) if daily_rows else "<tr><td colspan='3'>No data</td></tr>"
+
+    # Top paths table rows
+    path_rows = []
+    for path, hits in top_paths:
+        path_rows.append(f"<tr><td>{html.escape(path)}</td><td>{hits}</td></tr>")
+    paths_html = "\n".join(path_rows) if path_rows else "<tr><td colspan='2'>No data</td></tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Access Stats — Project Skyscraper</title>
+  <style>
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: #0d0d0d; color: #e0e0e0;
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      font-size: 13px; line-height: 1.6;
+      padding: 2rem;
+    }}
+    h1 {{ font-size: 1.2rem; color: #9ca3af; letter-spacing: 0.1em;
+          margin-bottom: 2rem; font-weight: normal; }}
+    h2 {{ font-size: 0.8rem; color: #555; text-transform: uppercase;
+          letter-spacing: 0.2em; margin: 2rem 0 0.75rem; font-weight: normal; }}
+    .cards {{ display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; }}
+    .card {{
+      background: #111; border: 1px solid #1e1e1e;
+      padding: 1rem 1.25rem; min-width: 160px; flex: 1;
+    }}
+    .card-label {{ font-size: 0.7rem; color: #555; text-transform: uppercase;
+                   letter-spacing: 0.15em; margin-bottom: 0.3rem; }}
+    .card-value {{ font-size: 1.6rem; color: #c8c8c8; }}
+    .total-all {{ color: #3a3a3a; font-size: 0.8rem; margin-top: 0.5rem; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 0.5rem; }}
+    th {{ text-align: left; color: #555; font-size: 0.7rem; text-transform: uppercase;
+           letter-spacing: 0.12em; padding: 0.4rem 0.6rem;
+           border-bottom: 1px solid #1e1e1e; font-weight: normal; }}
+    td {{ padding: 0.35rem 0.6rem; border-bottom: 1px solid #141414;
+           color: #aaa; }}
+    td:first-child {{ color: #c8c8c8; }}
+    tr:last-child td {{ border-bottom: none; }}
+    .hbar-row {{ display: flex; align-items: center; gap: 0.5rem;
+                 margin-bottom: 3px; }}
+    .hbar-label {{ width: 2rem; color: #555; font-size: 0.75rem; text-align: right; }}
+    .hbar-track {{ flex: 1; background: #1a1a1a; height: 14px; }}
+    .hbar-fill {{ background: #2563eb; height: 100%; }}
+    .hbar-cnt {{ width: 3rem; color: #555; font-size: 0.75rem; }}
+    .sessions-line {{ color: #888; margin-top: 0.5rem; }}
+    .utc-note {{ color: #3a3a3a; font-size: 0.7rem; margin-top: 0.3rem; }}
+  </style>
+</head>
+<body>
+  <h1>ACCESS STATS — Project Skyscraper Wayback</h1>
+
+  <h2>Today / This Week</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Requests Today</div>
+      <div class="card-value">{s['total_today']}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Unique IPs Today</div>
+      <div class="card-value">{s['unique_ips_today']}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Requests This Week</div>
+      <div class="card-value">{s['total_week']}</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Unique IPs This Week</div>
+      <div class="card-value">{s['unique_ips_week']}</div>
+    </div>
+  </div>
+  <div class="total-all">All-time total: {s['total_all']} requests</div>
+
+  <h2>Hourly Distribution (Last 7 Days, UTC)</h2>
+  <div class="utc-note">Hours in UTC</div>
+  {hour_bars_html}
+
+  <h2>Daily Trend (Last 14 Days)</h2>
+  <table>
+    <tr><th>Date</th><th>Requests</th><th>Unique IPs</th></tr>
+    {daily_html}
+  </table>
+
+  <h2>Sessions (Last 30 Days)</h2>
+  <div class="sessions-line">~{sessions} sessions, avg duration {avg_min} min</div>
+
+  <h2>Top 20 Pages (Last 30 Days, Status 200)</h2>
+  <table>
+    <tr><th>Path</th><th>Hits</th></tr>
+    {paths_html}
+  </table>
+</body>
+</html>"""
+
 
 # ─── Gate ────────────────────────────────────────────────────────────────────
 
@@ -615,6 +902,7 @@ def build_header_html(date: str, original_url: str,
   <div class="wb-tb-center">{inbox_html}</div>
   <div class="wb-tb-right">
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
+    <a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>
     <span class="wb-tb-ggf">GGF</span>
   </div>
 </div>
@@ -793,10 +1081,11 @@ def build_overlay_html(current_date: str, manifests,
 # ─── Request Handler ─────────────────────────────────────────────────────────
 
 class WaybackHandler(BaseHTTPRequestHandler):
-    manifests: ManifestCache = None   # set by main()
-    gate_password: str = ""           # set by main()
-    trigger_token: str = ""           # set by main()
-    scheduler: CrawlScheduler = None  # set by main()
+    manifests: ManifestCache = None        # set by main()
+    gate_password: str = ""                # set by main()
+    trigger_token: str = ""                # set by main()
+    scheduler: CrawlScheduler = None       # set by main()
+    access_log: "AccessLog | None" = None  # set by main()
 
     def log_message(self, format, *args):
         sys.stdout.write(f"  {args[0]}\n")
@@ -1156,6 +1445,13 @@ a:hover {{ color: #bae6fd; }}
             self.manifests.reload()
             self._json_response({"status": "ok", "dates": len(self.manifests.dates)})
 
+        elif path == "/~api/stats":
+            stats = (self.__class__.access_log.stats()
+                     if self.__class__.access_log is not None
+                     else _compute_stats_empty())
+            html = _build_stats_html(stats)
+            self._respond(200, html.encode("utf-8"), "text/html; charset=utf-8")
+
         else:
             self._error(404, f"Unknown API endpoint: {path}")
 
@@ -1192,6 +1488,17 @@ a {{ color: #7dd3fc; }}
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(body)
+        # Log after sending — no latency impact
+        if self.__class__.access_log is not None:
+            path = self.path.split("?")[0]
+            self.__class__.access_log.record(
+                ip=self.client_address[0],
+                path=path,
+                status=code,
+                bytes_sent=len(body),
+                ua=self.headers.get("User-Agent"),
+                referer=self.headers.get("Referer"),
+            )
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────
@@ -1230,6 +1537,11 @@ def main():
     # Load manifests
     cache = ManifestCache(cfg.SNAPSHOT_DIR)
     WaybackHandler.manifests = cache
+
+    # Initialize access log
+    db_path = os.path.join(cfg.MIRROR_DIR, "stats.db")
+    WaybackHandler.access_log = AccessLog(db_path)
+    print(f"  Stats:     {db_path}")
 
     if not cache.dates:
         print("⚠ No snapshots found. Run 'uv run site_crawler.py' first.")

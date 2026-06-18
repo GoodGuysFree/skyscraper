@@ -888,3 +888,221 @@ class TestApplyDiffColors:
     def test_no_diff_toggle_in_header_by_default(self):
         header = ws.build_header_html(_DATE, "https://example.com/")
         assert "wb-diff-toggle" not in header
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. AccessLog
+# ══════════════════════════════════════════════════════════════════════════════
+
+import sqlite3 as _sqlite3
+import threading as _threading_mod
+import time
+
+
+class TestAccessLog:
+    def test_records_request(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("1.2.3.4", "/about/", 200, 1234)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            rows = c.execute("SELECT ip, path, status, bytes FROM access_log").fetchall()
+        assert len(rows) == 1
+        assert rows[0] == ("1.2.3.4", "/about/", 200, 1234)
+
+    def test_skips_assets(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("1.2.3.4", "/_assets/ab/abc123.html", 200, 500)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 0
+
+    def test_skips_api(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("1.2.3.4", "/~api/dates", 200, 100)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 0
+
+    def test_skips_static(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("1.2.3.4", "/_static/bg.jpg", 200, 50000)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 0
+
+    def test_skips_favicon(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("1.2.3.4", "/favicon.ico", 200, 256)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 0
+
+    def test_persists_across_instances(self, tmp_path):
+        db = str(tmp_path / "stats.db")
+        log_a = ws.AccessLog(db)
+        log_a.record("10.0.0.1", "/", 200, 100)
+        # Open a new instance on the same path
+        log_b = ws.AccessLog(db)
+        with _sqlite3.connect(db) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 1
+
+    def test_concurrent_writes(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        errors = []
+
+        def worker():
+            try:
+                for _ in range(20):
+                    log.record("1.2.3.4", "/page/", 200, 100)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [_threading_mod.Thread(target=worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 11. _compute_sessions
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestComputeSessions:
+    def test_empty(self):
+        count, durations = ws._compute_sessions([])
+        assert count == 0
+        assert durations == []
+
+    def test_single_ip_no_gap(self):
+        # 3 requests 60s apart → 1 session, duration = 120s
+        base = 1_700_000_000.0
+        rows = [(base, "ip1"), (base + 60, "ip1"), (base + 120, "ip1")]
+        count, durations = ws._compute_sessions(rows)
+        assert count == 1
+        assert len(durations) == 1
+        assert durations[0] == pytest.approx(120.0)
+
+    def test_gap_splits(self):
+        # 2 requests 2000s apart → 2 sessions
+        base = 1_700_000_000.0
+        rows = [(base, "ip1"), (base + 2000, "ip1")]
+        count, durations = ws._compute_sessions(rows)
+        assert count == 2
+
+    def test_multiple_ips(self):
+        # ip A: 2 requests 30s apart → 1 session
+        # ip B: 3 requests 60s apart → 1 session
+        base = 1_700_000_000.0
+        rows = [
+            (base, "ipA"), (base + 30, "ipA"),
+            (base, "ipB"), (base + 60, "ipB"), (base + 120, "ipB"),
+        ]
+        count, durations = ws._compute_sessions(rows)
+        assert count == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 12. _compute_stats
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fresh_db(tmp_path):
+    """Open a fresh stats DB and return the connection (write-mode)."""
+    db_path = str(tmp_path / "stats.db")
+    log = ws.AccessLog(db_path)
+    conn = _sqlite3.connect(db_path)
+    return conn
+
+
+class TestComputeStats:
+    def test_empty_db(self, tmp_path):
+        conn = _fresh_db(tmp_path)
+        stats = ws._compute_stats(conn)
+        assert stats["summary"]["total_today"] == 0
+        assert stats["summary"]["unique_ips_today"] == 0
+        assert stats["summary"]["total_week"] == 0
+        assert stats["summary"]["unique_ips_week"] == 0
+        assert stats["summary"]["total_all"] == 0
+        assert stats["hourly"] == [0] * 24
+        assert stats["daily"] == []
+        assert stats["top_paths"] == []
+
+    def test_counts_requests(self, tmp_path):
+        conn = _fresh_db(tmp_path)
+        now = time.time()
+        for _ in range(3):
+            conn.execute(
+                "INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",
+                (now, "1.2.3.4", "/", 200, 100)
+            )
+        conn.commit()
+        stats = ws._compute_stats(conn)
+        assert stats["summary"]["total_today"] == 3
+
+    def test_skips_status_non_200_in_top_paths(self, tmp_path):
+        conn = _fresh_db(tmp_path)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",
+            (now, "1.2.3.4", "/notfound/", 404, 100)
+        )
+        conn.commit()
+        stats = ws._compute_stats(conn)
+        assert stats["top_paths"] == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 13. _build_stats_html
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestStatsHtml:
+    def _empty_stats(self):
+        return ws._compute_stats_empty()
+
+    def test_returns_html_string(self):
+        result = ws._build_stats_html(self._empty_stats())
+        assert isinstance(result, str)
+        assert "<!DOCTYPE" in result
+
+    def test_contains_section_headers(self):
+        result = ws._build_stats_html(self._empty_stats())
+        # Should contain recognizable section headings
+        assert "Today" in result or "Hourly" in result or "STATS" in result
+
+    def test_contains_summary_values(self):
+        stats = self._empty_stats()
+        stats["summary"]["total_today"] = 42
+        result = ws._build_stats_html(stats)
+        assert "42" in result
+
+    def test_hourly_bars_present(self):
+        result = ws._build_stats_html(self._empty_stats())
+        # The hourly section renders 24 bar row divs
+        assert result.count('<div class="hbar-row"') == 24
+
+    def test_sessions_line_present(self):
+        stats = self._empty_stats()
+        stats["sessions"] = 7
+        result = ws._build_stats_html(stats)
+        assert "7" in result
+
+    def test_xss_path_escaped(self, tmp_path):
+        """XSS payload in path column must be HTML-escaped, not rendered raw."""
+        db_path = str(tmp_path / "stats.db")
+        log = ws.AccessLog(db_path)
+        conn = _sqlite3.connect(db_path)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",
+            (now, "1.2.3.4", "/<script>alert(1)</script>", 200, 100),
+        )
+        conn.commit()
+        stats = ws._compute_stats(conn)
+        result = ws._build_stats_html(stats)
+        assert "<script>alert(1)</script>" not in result
+        assert "&lt;script&gt;" in result
