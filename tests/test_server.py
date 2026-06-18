@@ -213,6 +213,18 @@ class TestBuildHeaderHtml:
         assert expected_text in html
         assert "wb-tb-status" in html
 
+    def test_no_old_notice_by_default(self):
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/")
+        assert "Old snapshot" not in html
+        # The CSS rule for .wb-tb-old always exists; the ELEMENT must not.
+        assert 'class="wb-tb-old"' not in html
+
+    def test_old_notice_when_backfilled(self):
+        html = ws.build_header_html("2026-06-04T1806", "https://example.com/",
+                                    is_backfilled=True)
+        assert "Old snapshot — may not be accurate" in html
+        assert 'class="wb-tb-old"' in html
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 5.  ManifestCache  — loads and caches snapshot manifests
@@ -286,6 +298,40 @@ class TestManifestCache:
         snap_dir.mkdir()
         cache = ws.ManifestCache(str(snap_dir))
         assert cache.get_manifest("2099-01-01") is None
+
+    def test_is_backfilled_true(self, tmp_path):
+        snap_dir = tmp_path / "snapshots"
+        m = _make_manifest(date="2026-06-04")
+        m["backfilled"] = True
+        _write_manifest(snap_dir, "2026-06-04T1806", m)
+        cache = ws.ManifestCache(str(snap_dir))
+        assert cache.is_backfilled("2026-06-04T1806") is True
+
+    def test_is_backfilled_false_for_normal(self, tmp_path):
+        snap_dir = tmp_path / "snapshots"
+        _write_manifest(snap_dir, "2026-06-13T1754", _make_manifest(date="2026-06-13"))
+        cache = ws.ManifestCache(str(snap_dir))
+        assert cache.is_backfilled("2026-06-13T1754") is False
+
+    def test_is_backfilled_false_for_missing(self, tmp_path):
+        cache = ws.ManifestCache(str(tmp_path / "none"))
+        assert cache.is_backfilled("2099-01-01") is False
+
+
+class TestPickerBackfillItalics:
+    def test_backfilled_row_marked_old(self, tmp_path):
+        snap_dir = tmp_path / "snapshots"
+        old = _make_manifest(date="2026-06-04"); old["backfilled"] = True
+        _write_manifest(snap_dir, "2026-06-04T1806", old, changes={"summary": "First snapshot"})
+        _write_manifest(snap_dir, "2026-06-13T1754", _make_manifest(date="2026-06-13"),
+                        changes={"summary": "1 added, 0 modified, 0 removed, 0 new assets"})
+        cache = ws.ManifestCache(str(snap_dir))
+        html = ws.build_overlay_html("2026-06-13T1754", cache, cache.get_changes("2026-06-13T1754"), "/")
+        # Exactly one picker ROW carries the old class (the CSS rule '.wb-row-old'
+        # also contains the substring, so match the row-class combination).
+        assert html.count('wb-row wb-row-old') == 1
+        # CSS italic rule present
+        assert "font-style: italic" in html
 
     def test_get_changes_loaded(self, tmp_path):
         snap_dir = tmp_path / "snapshots"

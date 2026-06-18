@@ -797,6 +797,12 @@ class ManifestCache:
     def get_manifest(self, date: str) -> dict | None:
         return self._manifests.get(date)
 
+    def is_backfilled(self, date: str) -> bool:
+        """True for snapshots synthesized from an external mirror (not crawled
+        by us). They carry "backfilled": true and may not be fully accurate."""
+        m = self._manifests.get(date)
+        return bool(m and m.get("backfilled"))
+
     def get_changes(self, date: str) -> dict | None:
         return self._changes.get(date)
 
@@ -825,7 +831,8 @@ _PAGE_STATUS_BADGES: dict[str, tuple[str, str]] = {
 def build_header_html(date: str, original_url: str,
                       page_status: str | None = None,
                       show_diff_toggle: bool = False,
-                      inbox_status: str | None = None) -> str:
+                      inbox_status: str | None = None,
+                      is_backfilled: bool = False) -> str:
     """Thin fixed top bar: mirror notice, link to live page, snapshot date, GGF badge."""
     try:
         dt = datetime.strptime(date, "%Y-%m-%dT%H%M")
@@ -856,6 +863,15 @@ def build_header_html(date: str, original_url: str,
         inbox_html = (
             f'<a href="/@{date}/inbox/" class="wb-inbox-link" '
             f'style="color:{ic}" title="Inbox ({inbox_status})">ARCHITECT INBOX</a>'
+        )
+
+    # Notice for backfilled (externally-sourced) snapshots — white text.
+    old_html = ""
+    if is_backfilled:
+        old_html = (
+            '<span class="wb-tb-old" title="This snapshot was reconstructed from '
+            'an external mirror and may not be fully accurate">'
+            'Old snapshot — may not be accurate</span>'
         )
 
     return f"""<!-- ═══ WB HEADER ═══ -->
@@ -891,6 +907,11 @@ def build_header_html(date: str, original_url: str,
 {'#wb-topbar .wb-diff-toggle{background:none;border:1px solid #2a2a2a;color:#555;font-family:inherit;font-size:10px;letter-spacing:.08em;padding:1px 7px;cursor:pointer;border-radius:2px}#wb-topbar .wb-diff-toggle:hover{border-color:#444;color:#999}' if show_diff_toggle else ''}
 #wb-topbar .wb-inbox-link {{ font-size: 10px; letter-spacing: 0.12em; text-decoration: none; }}
 #wb-topbar .wb-inbox-link:hover {{ opacity: 0.75; }}
+#wb-topbar .wb-tb-old {{
+  color: #ffffff; font-size: 10px; letter-spacing: 0.08em;
+  background: #3a2a00; border: 1px solid #6a5200; border-radius: 3px;
+  padding: 1px 8px; margin-right: 10px;
+}}
 </style>
 <div id="wb-topbar">
   <div class="wb-tb-left">
@@ -899,7 +920,7 @@ def build_header_html(date: str, original_url: str,
     <span>Now viewing snapshot: <strong>{date_display}</strong></span>
     {status_html}
   </div>
-  <div class="wb-tb-center">{inbox_html}</div>
+  <div class="wb-tb-center">{old_html}{inbox_html}</div>
   <div class="wb-tb-right">
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
     <a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>
@@ -1083,10 +1104,17 @@ def build_overlay_html(current_date: str, manifests,
     rows = []
     for d in reversed(dates):
         is_cur = d == current_date
-        cls = "wb-row wb-row-current" if is_cur else "wb-row"
+        is_old = manifests.is_backfilled(d)
+        cls = "wb-row"
+        if is_cur:
+            cls += " wb-row-current"
+        if is_old:
+            cls += " wb-row-old"          # rendered in italics (see CSS)
         now_badge = '<span class="wb-now">now</span>' if is_cur else ""
         c = manifests.get_changes(d)
-        tooltip = c.get("summary", "") if c else "First snapshot"
+        base_tip = c.get("summary", "") if c else "First snapshot"
+        tooltip = (f"Old (backfilled) snapshot — may not be accurate. {base_tip}"
+                   if is_old else base_tip)
         rows.append(f'<div class="{cls}" title="{tooltip}" onclick="wbNav(\'{d}\')">'
                     f'<span>{get_display(d)}</span>{now_badge}</div>')
     rows_html = "\n        ".join(rows)
@@ -1147,6 +1175,7 @@ def build_overlay_html(current_date: str, manifests,
 .wb-row:hover {{ background: #1c1c1c; color: #eee; }}
 .wb-row-current {{ background: #0b1a0b; color: #c8e6c8; }}
 .wb-row-current:hover {{ background: #0f200f; color: #e0f0e0; }}
+.wb-row-old {{ font-style: italic; color: #9a9a9a; }}
 .wb-now {{
   font-size: 9px; color: #4ade80; border: 1px solid #2d6a2d;
   padding: 1px 5px; border-radius: 3px; letter-spacing: 0.05em;
@@ -1461,7 +1490,8 @@ class WaybackHandler(BaseHTTPRequestHandler):
         original_url = page_data.get("original_url", cfg.SITE_ORIGIN + page_path)
         header = build_header_html(date, original_url, page_status,
                                    show_diff_toggle=is_pagination,
-                                   inbox_status=inbox_status)
+                                   inbox_status=inbox_status,
+                                   is_backfilled=self.manifests.is_backfilled(date))
         body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
         if body_tag:
             end = body_tag.end()
