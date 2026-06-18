@@ -145,7 +145,7 @@ SERVER_PORT = 8070
 # GATE_MODE controls what visitors see before entering the archive.
 #   "password" — ask for a password (read from .env → ARCHIVE_PASSWORD)
 #   "button"   — show a splash page with an "Enter Archive" button, no password
-GATE_MODE = "password"
+GATE_MODE = "button"
 
 # Path to the environment file that supplies ARCHIVE_PASSWORD and TRIGGER_TOKEN.
 # Never commit this file — it is git-ignored.
