@@ -692,14 +692,12 @@ class SiteCrawler:
             pw_page.goto(url, wait_until="load", timeout=cfg.PAGE_LOAD_TIMEOUT_MS)
             pw_page.wait_for_timeout(800)
 
-            # Handle password-protected pages
-            pw_input = pw_page.locator('input[name="post_password"]')
-            if pw_input.count() > 0:
-                print(f"    🔑 Password protected — entering password")
-                pw_input.first.fill(cfg.PAGE_PASSWORD)
-                pw_input.first.press("Enter")
-                pw_page.wait_for_load_state("load")
-                pw_page.wait_for_timeout(1000)
+            # Password-protected pages: do NOT auto-submit. Store the prompt as-is
+            # so wayback users see the authentic first-visit experience.
+            # (Submitting any password sets a wp-postpass cookie that silently
+            # unlocks all same-password pages later in the same crawl session.)
+            if pw_page.locator('input[name="post_password"]').count() > 0:
+                print(f"    🔑 Password protected — storing prompt (not submitting)")
 
             # Scroll through the page to trigger lazy-loaded images so the
             # response listener captures them.
