@@ -529,9 +529,13 @@ def _build_stats_html(stats: dict) -> str:
     .hbar-cnt {{ width: 3rem; color: #555; font-size: 0.75rem; }}
     .sessions-line {{ color: #888; margin-top: 0.5rem; }}
     .utc-note {{ color: #3a3a3a; font-size: 0.7rem; margin-top: 0.3rem; }}
+    .back-link {{ display: inline-block; color: #7dd3fc; text-decoration: none;
+                  font-size: 0.8rem; letter-spacing: 0.08em; margin-bottom: 1.25rem; }}
+    .back-link:hover {{ color: #bae6fd; }}
   </style>
 </head>
 <body>
+  <a class="back-link" href="/" onclick="history.back();return false;">← Back</a>
   <h1>ACCESS STATS — Project Skyscraper Wayback</h1>
 
   <h2>Today / This Week</h2>
@@ -1085,11 +1089,22 @@ _PAGE_STATUS_BADGES: dict[str, tuple[str, str]] = {
 }
 
 
+def _snapshot_locked_unknown(manifest: dict) -> list[str]:
+    """Paths in this snapshot that are password-protected but for which we have
+    NO password — the crawler stored the prompt (page entry "locked": true) and
+    the path is not in cfg.PROTECTED_PAGES. Used to flag the GGF badge red so an
+    unsolved locked page the crawler discovered is noticeable."""
+    pages = manifest.get("pages", {}) if manifest else {}
+    return [p for p, d in pages.items()
+            if d.get("locked") and p not in cfg.PROTECTED_PAGES]
+
+
 def build_header_html(date: str, original_url: str,
                       page_status: str | None = None,
                       show_diff_toggle: bool = False,
                       inbox_status: str | None = None,
-                      is_backfilled: bool = False) -> str:
+                      is_backfilled: bool = False,
+                      locked_unknown_paths: list | None = None) -> str:
     """Thin fixed top bar: mirror notice, link to live page, snapshot date, GGF badge."""
     try:
         dt = datetime.strptime(date, "%Y-%m-%dT%H%M")
@@ -1133,6 +1148,19 @@ def build_header_html(date: str, original_url: str,
             'an external mirror and may not be fully accurate">'
             'NOTICE: May be inaccurate</span>'
         )
+
+    # GGF badge: always links to the YouTube channel; turns red when this
+    # snapshot contains a password-protected page we have no password for.
+    locked_unknown = bool(locked_unknown_paths)
+    ggf_color = "#ef4444" if locked_unknown else "#333"
+    ggf_title = (("Locked page(s) without a known password: "
+                  + ", ".join(locked_unknown_paths)) if locked_unknown
+                 else "GoodGuysFree on YouTube")
+    ggf_html = (
+        '<a href="https://www.youtube.com/@GoodGuysFree" target="_blank" '
+        'rel="noopener noreferrer" class="wb-tb-ggf" '
+        f'style="color:{ggf_color}" title="{html.escape(ggf_title)}">GGF</a>'
+    )
 
     return f"""<!-- ═══ WB HEADER ═══ -->
 <style>
@@ -1187,7 +1215,7 @@ def build_header_html(date: str, original_url: str,
   <div class="wb-tb-right">
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
     <a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>
-    <span class="wb-tb-ggf">GGF</span>
+    {ggf_html}
   </div>
 </div>
 <!-- ═══ END WB HEADER ═══ -->"""
@@ -1766,7 +1794,8 @@ class WaybackHandler(BaseHTTPRequestHandler):
         header = build_header_html(date, original_url, page_status,
                                    show_diff_toggle=is_pagination,
                                    inbox_status=inbox_status,
-                                   is_backfilled=self.manifests.is_backfilled(date))
+                                   is_backfilled=self.manifests.is_backfilled(date),
+                                   locked_unknown_paths=_snapshot_locked_unknown(manifest))
         body_tag = re.search(r'<body[^>]*>', html, re.IGNORECASE)
         if body_tag:
             end = body_tag.end()

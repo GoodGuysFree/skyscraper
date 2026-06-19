@@ -688,6 +688,7 @@ class SiteCrawler:
 
         print(f"  📄 {path}")
 
+        locked = False  # captured page still shows a password prompt we can't open
         try:
             # Clear cookies before every page so a wp-postpass cookie set while
             # unlocking one protected page can't silently unlock a different
@@ -720,10 +721,16 @@ class SiteCrawler:
                         pw_page.wait_for_timeout(800)
                         if pw_page.locator('input[name="post_password"]').count() > 0:
                             print(f"    ⚠ password did not unlock — storing prompt")
+                            locked = True
                     except Exception as e:
                         print(f"    ⚠ unlock failed ({e}) — storing prompt")
+                        locked = True
                 else:
+                    # Password-protected page we have NO password for: keep the
+                    # authentic prompt and flag it so the server can surface that
+                    # an unsolved locked page exists.
                     print(f"    🔑 Password protected — storing prompt (not submitting)")
+                    locked = True
 
             # Scroll through the page to trigger lazy-loaded images so the
             # response listener captures them.
@@ -808,6 +815,8 @@ class SiteCrawler:
         }
         if c_hash != sha:
             entry["canonical_hash"] = c_hash
+        if locked:
+            entry["locked"] = True
         return entry, discovered
 
     # ── Queue-based crawl loop (handles pagination discovery) ────────────

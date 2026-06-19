@@ -1627,3 +1627,57 @@ class TestInjectInboxToggles:
         en_p = soup.select_one(".wb-v-en p")
         assert en_p is not None
         assert "wp-block-paragraph" in en_p.get("class", [])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Locked-unknown detection + GGF badge + stats back button
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSnapshotLockedUnknown:
+    def test_flags_locked_page_without_known_password(self):
+        m = {"pages": {"/secret/": {"blob": "x", "locked": True}}}
+        assert ws._snapshot_locked_unknown(m) == ["/secret/"]
+
+    def test_excludes_locked_page_we_have_password_for(self, monkeypatch):
+        monkeypatch.setattr(cfg, "PROTECTED_PAGES", {"/known/": "pw"})
+        m = {"pages": {"/known/": {"blob": "x", "locked": True}}}
+        assert ws._snapshot_locked_unknown(m) == []
+
+    def test_excludes_unlocked_pages(self):
+        m = {"pages": {"/a/": {"blob": "x"}, "/b/": {"blob": "y", "locked": False}}}
+        assert ws._snapshot_locked_unknown(m) == []
+
+    def test_empty_or_missing_manifest(self):
+        assert ws._snapshot_locked_unknown({}) == []
+        assert ws._snapshot_locked_unknown(None) == []
+
+
+class TestHeaderGgfBadge:
+    def _header(self, locked_paths=None):
+        return ws.build_header_html("2026-06-12T2345", "https://x/p/",
+                                    locked_unknown_paths=locked_paths)
+
+    def test_ggf_always_links_to_youtube(self):
+        for lp in (None, ["/secret/"]):
+            assert "https://www.youtube.com/@GoodGuysFree" in self._header(lp)
+
+    def test_ggf_grey_by_default(self):
+        h = self._header(None)
+        assert "color:#333" in h
+        assert "#ef4444" not in h
+
+    def test_ggf_red_when_locked_unknown(self):
+        h = self._header(["/secret/"])
+        assert "color:#ef4444" in h
+        assert "/secret/" in h          # path surfaced in the tooltip
+
+    def test_ggf_is_no_longer_a_plain_span(self):
+        assert '<span class="wb-tb-ggf">GGF</span>' not in self._header(None)
+
+
+class TestStatsBackButton:
+    def test_stats_page_has_back_link(self):
+        out = ws._build_stats_html(ws._compute_stats_empty())
+        assert "back-link" in out
+        assert "Back" in out
+        assert 'href="/"' in out
