@@ -252,6 +252,12 @@ class AccessLog:
     stats reads open a separate read-only connection so they never block writers."""
 
     _SKIP = ("/_assets/", "/~api/", "/_static/", "/favicon.")
+    # Loopback peers never come through Caddy — they are our own direct-to-port
+    # traffic (health checks, /~api/reload, local curls). In production every
+    # real visitor arrives via Caddy with an X-Forwarded-For, so a resolved
+    # loopback IP means "internal", not a visitor. (In dev, LAN clients hit the
+    # bound interface directly and keep their real IP — only loopback is dropped.)
+    _LOOPBACK = ("127.0.0.1", "::1", "localhost")
 
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
@@ -282,6 +288,8 @@ class AccessLog:
 
     def record(self, ip: str, path: str, status: int, bytes_sent: int,
                ua: str | None = None, referer: str | None = None) -> None:
+        if ip in self._LOOPBACK:
+            return
         if any(path.startswith(p) for p in self._SKIP):
             return
         with self._lock:
@@ -355,10 +363,10 @@ def _compute_stats(conn: sqlite3.Connection) -> dict:
         (now - 14 * DAY,)
     ).fetchall()
 
-    # Top 20 paths by hits (last 30 days, status=200 only)
+    # Top 20 paths by hits (last 30 days, status=200, excluding the splash "/")
     top_paths = conn.execute(
         "SELECT path, COUNT(*) FROM access_log "
-        "WHERE ts>? AND status=200 GROUP BY path ORDER BY 2 DESC LIMIT 20",
+        "WHERE ts>? AND status=200 AND path<>'/' GROUP BY path ORDER BY 2 DESC LIMIT 20",
         (now - 30 * DAY,)
     ).fetchall()
 
@@ -368,7 +376,11 @@ def _compute_stats(conn: sqlite3.Connection) -> dict:
         (now - 30 * DAY,)
     ).fetchall()
     session_count, durations = _compute_sessions(rows)
-    avg_dur = sum(durations) / len(durations) if durations else 0
+    # Average over ENGAGED sessions only (>1 request). Single-request visits
+    # (bots, one-page bounces) have 0 duration and would otherwise drag the
+    # average toward zero, hiding the real dwell time of multi-page sessions.
+    engaged = [d for d in durations if d > 0]
+    avg_dur = sum(engaged) / len(engaged) if engaged else 0
 
     return {
         "summary":      summary,
@@ -1900,6 +1912,10 @@ a:hover {{ color: #bae6fd; }}
         self.send_response(302)
         self.send_header("Location", location)
         self.end_headers()
+        # Count the redirect too (e.g. bare-path → /@latest, or unauthenticated
+        # first hit). 302s are excluded from Top-Pages by its status=200 filter,
+        # so this completes request/unique-IP counts without polluting top paths.
+        self._log_access(302, 0)
 
     def _error(self, code: int, message: str):
         body = f"""<!DOCTYPE html>
@@ -1922,6 +1938,24 @@ a {{ color: #7dd3fc; }}
         body = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
         self._respond(200, body, "application/json; charset=utf-8")
 
+    def _log_access(self, status: int, bytes_sent: int) -> None:
+        """Record one request in the access log (loopback/asset/api filtered in
+        AccessLog.record). Uses the DECODED path so Top-Pages groups correctly
+        and the skip-prefixes still match percent-encoded URLs."""
+        al = self.__class__.access_log
+        if al is None:
+            return
+        path = unquote(self.path).split("?")[0]
+        al.record(
+            ip=_resolve_client_ip(self.headers.get("X-Forwarded-For"),
+                                  self.client_address[0]),
+            path=path,
+            status=status,
+            bytes_sent=bytes_sent,
+            ua=self.headers.get("User-Agent"),
+            referer=self.headers.get("Referer"),
+        )
+
     def _respond(self, code: int, body: bytes, content_type: str):
         self.send_response(code)
         self.send_header("Content-Type", content_type)
@@ -1929,18 +1963,7 @@ a {{ color: #7dd3fc; }}
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(body)
-        # Log after sending — no latency impact
-        if self.__class__.access_log is not None:
-            path = self.path.split("?")[0]
-            self.__class__.access_log.record(
-                ip=_resolve_client_ip(self.headers.get("X-Forwarded-For"),
-                                      self.client_address[0]),
-                path=path,
-                status=code,
-                bytes_sent=len(body),
-                ua=self.headers.get("User-Agent"),
-                referer=self.headers.get("Referer"),
-            )
+        self._log_access(code, len(body))   # log after sending — no latency
 
 
 # ─── Main ────────────────────────────────────────────────────────────────────

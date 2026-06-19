@@ -963,6 +963,23 @@ class TestAccessLog:
             count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
         assert count == 0
 
+    def test_skips_loopback_ips(self, tmp_path):
+        # Direct-to-port traffic (no Caddy XFF) resolves to loopback and must
+        # NOT be counted as a visitor.
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        for ip in ("127.0.0.1", "::1", "localhost"):
+            log.record(ip, "/about/", 200, 100)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 0
+
+    def test_real_ip_still_recorded(self, tmp_path):
+        log = ws.AccessLog(str(tmp_path / "stats.db"))
+        log.record("203.0.113.9", "/about/", 200, 100)
+        with _sqlite3.connect(str(tmp_path / "stats.db")) as c:
+            count = c.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+        assert count == 1
+
     def test_skips_api(self, tmp_path):
         log = ws.AccessLog(str(tmp_path / "stats.db"))
         log.record("1.2.3.4", "/~api/dates", 200, 100)
@@ -1102,6 +1119,32 @@ class TestComputeStats:
         conn.commit()
         stats = ws._compute_stats(conn)
         assert stats["top_paths"] == []
+
+    def test_splash_root_excluded_from_top_paths(self, tmp_path):
+        conn = _fresh_db(tmp_path)
+        now = time.time()
+        for _ in range(5):  # lots of splash hits
+            conn.execute("INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",
+                         (now, "1.2.3.4", "/", 200, 100))
+        conn.execute("INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",
+                     (now, "1.2.3.4", "/@2026-06-12T2345/", 200, 100))
+        conn.commit()
+        paths = [p for p, _ in ws._compute_stats(conn)["top_paths"]]
+        assert "/" not in paths
+        assert "/@2026-06-12T2345/" in paths
+
+    def test_avg_duration_ignores_zero_single_request_sessions(self, tmp_path):
+        conn = _fresh_db(tmp_path)
+        now = time.time()
+        # ip A: two requests 100s apart (engaged, 100s). ip B..D: one each (0s).
+        conn.execute("INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",(now-100,"A","/a/",200,1))
+        conn.execute("INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",(now,"A","/b/",200,1))
+        for ip in ("B","C","D"):
+            conn.execute("INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)",(now,ip,"/x/",200,1))
+        conn.commit()
+        stats = ws._compute_stats(conn)
+        # avg over engaged (>0) sessions only → 100s, not 100/4
+        assert stats["avg_duration"] == 100
 
 
 # ══════════════════════════════════════════════════════════════════════════════
