@@ -882,7 +882,8 @@ class SiteCrawler:
             pw_page.on("response", self._on_response)
 
             self._crawl_loop(
-                pw_page, [cfg.SITE_ORIGIN + "/"], manifest, skip_existing=True
+                pw_page, [cfg.SITE_ORIGIN + "/"] + protected_seed_urls(),
+                manifest, skip_existing=True
             )
 
             browser.close()
@@ -961,7 +962,8 @@ class SiteCrawler:
             pw_page = context.new_page()
             pw_page.on("response", self._on_response)
 
-            self._crawl_loop(pw_page, [e["url"] for e in pages], manifest)
+            seed_urls = [e["url"] for e in pages] + protected_seed_urls()
+            self._crawl_loop(pw_page, seed_urls, manifest)
 
             # 3. Pick up sitemap-only images that no page referenced.
             print()
@@ -1077,6 +1079,14 @@ class SiteCrawler:
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────
+
+def protected_seed_urls() -> list[str]:
+    """Full URLs for the explicitly-protected pages (cfg.PROTECTED_PAGES). Seeded
+    into every crawl/augment so hidden ARG pages that are absent from the sitemap
+    AND unlinked (link-following never reaches them) are still captured — we
+    already know their URL and password."""
+    return [cfg.SITE_ORIGIN + path for path in cfg.PROTECTED_PAGES]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Project Skyscraper site crawler")

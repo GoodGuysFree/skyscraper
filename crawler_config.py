@@ -29,6 +29,7 @@ PAGE_PASSWORD = "EMILY"
 PROTECTED_PAGES = {
     "/request-memory-timestamp-094317/": "EMILY",
     "/report-bru-ent-reunion-peak/": "EVENT HORIZON",
+    "/recon-protocol/": "vector_cmdr",
 }
 
 # ── Local Paths ──────────────────────────────────────────────────────────────

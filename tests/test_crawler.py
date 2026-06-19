@@ -430,3 +430,19 @@ class TestComputeChangesAssets:
         curr = _make_manifest(assets={"/_assets/aa/x.png": _asset("https://example.com/x.png")})
         changes = self._run(tmp_path, prev, curr)
         assert changes["assets_added"] == 0
+
+
+class TestProtectedSeedUrls:
+    def test_includes_every_protected_page_as_full_url(self):
+        urls = sc.protected_seed_urls()
+        assert len(urls) == len(cfg.PROTECTED_PAGES)
+        for path in cfg.PROTECTED_PAGES:
+            assert cfg.SITE_ORIGIN + path in urls
+
+    def test_recon_protocol_seeded(self):
+        # Hidden page: not in the sitemap, unlinked — must be seeded so the
+        # crawler reaches it instead of never noticing it.
+        assert cfg.SITE_ORIGIN + "/recon-protocol/" in sc.protected_seed_urls()
+
+    def test_recon_protocol_password_configured(self):
+        assert cfg.PROTECTED_PAGES.get("/recon-protocol/") == "vector_cmdr"
