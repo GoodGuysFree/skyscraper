@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddy edge protection for archive.goodguysfree.com
+#
+# robots.txt (advisory) is served by the app. THIS file is the real enforcement,
+# applied at Caddy. Two independent options — A needs a plugin, B is stock Caddy.
+# Pick one (A preferred). Neither is auto-applied; apply on the VPS deliberately.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ═══ OPTION A — per-IP rate limit (RECOMMENDED) ══════════════════════════════
+# Requires the caddy-ratelimit module (not in stock Caddy). Build once:
+#
+#   # on the VPS, as root:
+#   apt-get install -y golang-go            # or use the official Go tarball
+#   go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+#   ~/go/bin/xcaddy build --with github.com/mholt/caddy-ratelimit
+#   systemctl stop caddy
+#   mv ./caddy /usr/bin/caddy               # replace the binary
+#   systemctl start caddy
+#   caddy version                            # confirm it still starts
+#
+# Then put this INSIDE the archive.goodguysfree.com { } site block in
+# /etc/caddy/Caddyfile (order matters — rate_limit before reverse_proxy):
+#
+# archive.goodguysfree.com {
+#     rate_limit {
+#         zone per_ip {
+#             key    {remote_host}     # real client IP (Caddy sees the true peer)
+#             events 60                # allow 60 requests...
+#             window 1m                # ...per minute per IP
+#         }
+#     }
+#     encode gzip
+#     reverse_proxy 127.0.0.1:8070
+# }
+#
+# Tuning: a human browsing the archive triggers many sub-resource requests per
+# page, but those are content-addressed and cache well — 60/min/IP is generous
+# for humans and still throttles a scraper hammering the origin. Raise to 120 if
+# legitimate users hit 429; lower to 30 to clamp harder. Over-limit gets HTTP 429.
+
+# ═══ OPTION B — stock Caddy, no plugin: block bad/aggressive bots by UA ═══════
+# No rate limiting, but stops the worst offenders without rebuilding Caddy.
+# Inside the site block, BEFORE reverse_proxy:
+#
+# archive.goodguysfree.com {
+#     @badbots header_regexp User-Agent (?i)(ahrefsbot|semrushbot|mj12bot|dotbot|petalbot|bytespider|gptbot|ccbot|claudebot|amazonbot|dataforseo|blexbot|serpstatbot|zoominfobot)
+#     respond @badbots "Blocked" 403
+#
+#     @nobrowser header_regexp User-Agent ^(?i)(curl|wget|python-requests|go-http-client|libwww|scrapy|httpclient)
+#     respond @nobrowser "Blocked" 403
+#
+#     encode gzip
+#     reverse_proxy 127.0.0.1:8070
+# }
+#
+# Note: UA is trivially spoofed, so this only catches the lazy/honest crawlers.
+# Combine with Option A for real protection.
+
+# ═══ OPTION C — fail2ban (defense in depth, optional) ════════════════════════
+# Watch the app access log (web_mirror/../stats.db is SQLite, not ideal for
+# fail2ban; instead point fail2ban at Caddy's access log) and ban IPs that
+# exceed a threshold at the ufw/iptables level. Heavier to set up; only worth it
+# if A+B prove insufficient.
+
+# ═══ Always apply after editing the Caddyfile ════════════════════════════════
+#   caddy validate --config /etc/caddy/Caddyfile     # check syntax first
+#   systemctl reload caddy                            # zero-downtime reload
+#   curl -sI https://archive.goodguysfree.com/        # confirm still 200/302
+#
+# Verify the limit works (Option A): hammer it and expect 429s:
+#   for i in $(seq 1 80); do curl -s -o /dev/null -w "%{http_code} " \
+#       https://archive.goodguysfree.com/@LATEST/ ; done; echo
+#
+# BIGGEST bandwidth win if quota ever climbs: put Cloudflare (free) in front
+# (DNS → Cloudflare → Caddy). It caches the immutable /_assets/ blobs at their
+# edge and absorbs bot traffic before it reaches Hetzner. Separate task.

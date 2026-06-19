@@ -36,6 +36,18 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 INTERNAL_HOSTS = {cfg.SITE_DOMAIN, f"www.{cfg.SITE_DOMAIN}"}
 
+# Advisory crawler policy. Compliant bots (Googlebot honors Disallow; Bing/Yandex
+# also honor Crawl-delay) are kept out of the heavy date-scoped archive and the
+# blob store to protect bandwidth. Abusive bots ignore this — real enforcement is
+# Caddy-side (see deploy/caddy-ratelimit.snippet). The landing page stays allowed.
+_ROBOTS_TXT = (
+    b"User-agent: *\n"
+    b"Crawl-delay: 30\n"
+    b"Disallow: /@\n"
+    b"Disallow: /_assets/\n"
+    b"Disallow: /~\n"
+)
+
 
 # ─── School-Code cipher (The Architect's "code du lycée") ────────────────────
 # Monoalphabetic substitution used in the /inbox/ ARG thread. Decoding turns the
@@ -1630,6 +1642,12 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # ── Static UI files (bg images etc.) — always open, no auth ──
         if path.startswith("/_static/"):
             self._serve_static(path)
+            return
+
+        # ── robots.txt — always open; asks crawlers to stay out of the heavy
+        #    archive paths and slow down (advisory only; see Caddy for teeth) ──
+        if path == "/robots.txt":
+            self._respond(200, _ROBOTS_TXT, "text/plain; charset=utf-8")
             return
 
         # ── Everything else requires auth ──

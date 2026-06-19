@@ -1203,6 +1203,16 @@ class TestStatsHtml:
 # _inject_form_block — targets the INNER Jetpack form, not the password gate
 # ══════════════════════════════════════════════════════════════════════════════
 
+class TestRobotsTxt:
+    def test_blocks_heavy_paths_and_sets_delay(self):
+        txt = ws._ROBOTS_TXT.decode()
+        assert "Disallow: /@" in txt          # date-scoped archive
+        assert "Disallow: /_assets/" in txt    # blob store (bandwidth)
+        assert "Disallow: /~" in txt           # api/gate
+        assert "Crawl-delay:" in txt
+        assert txt.startswith("User-agent: *")
+
+
 class TestResolveClientIp:
     def test_no_xff_falls_back_to_remote(self):
         assert ws._resolve_client_ip(None, "127.0.0.1") == "127.0.0.1"
