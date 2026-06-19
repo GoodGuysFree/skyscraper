@@ -1285,3 +1285,267 @@ class TestInjectPasswordGate:
         html = "<html><body><p>the secret content</p></body></html>"
         result = ws._inject_password_gate(html, "EMILY")
         assert "the secret content" in result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Inbox School-Code toggle — decode + CI/FR/EN injection
+# ══════════════════════════════════════════════════════════════════════════════
+
+# "Lf pwkyh hry wuohkyh." decodes to "La porte est ouverte." (The door is open.)
+INBOX_CIPHER_BODY = "Lf pwkyh hry wuohkyh."
+INBOX_CIPHER_FR = "La porte est ouverte."
+INBOX_CIPHER_EN = "The door is open."
+INBOX_PLAIN_BODY = "Bonjour le monde."
+INBOX_PLAIN_EN = "Hello world."
+
+
+def _inbox_card(body_html: str) -> str:
+    """A message card matching the real /inbox/ structure: sender + date headers
+    nested in an inner wp-block-columns; the body is a direct-child <p>."""
+    return (
+        '<div class="wp-block-group has-primary-background-color '
+        'is-layout-constrained">'
+        '<div class="wp-block-columns is-layout-flex">'
+        '<div class="wp-block-column"><p>The Architect &lt;a&gt; '
+        '&#192; : Ghost</p></div>'
+        '<div class="wp-block-column"><p class="has-text-align-right">'
+        'dimanche 31 mai 20:56</p></div>'
+        '</div>'
+        f'<p class="wp-block-paragraph">{body_html}</p>'
+        '</div>'
+    )
+
+
+def _inbox_html(*bodies: str) -> str:
+    cards = "".join(_inbox_card(b) for b in bodies)
+    return f"<html><head><title>Inbox</title></head><body>{cards}</body></html>"
+
+
+def _tx_for(html, specs):
+    """Build a translations dict keyed by the *real* body-key the server computes
+    for each card. `specs` aligns with cards; use None to omit a card."""
+    soup = ws.BeautifulSoup(html, "html.parser")
+    tx = {}
+    for (card, body_ps), spec in zip(ws._inbox_message_cards(soup), specs):
+        if spec is not None:
+            tx[ws._inbox_body_key(body_ps)] = spec
+    return tx
+
+
+class TestDecodeSchoolCode:
+    def test_known_vector(self):
+        assert ws.decode_school_code(INBOX_CIPHER_BODY) == INBOX_CIPHER_FR
+
+    def test_case_mapping(self):
+        # Plain A->M (per the key's first letter), preserving case.
+        assert ws.decode_school_code("A") == "M"
+        assert ws.decode_school_code("a") == "m"
+
+    def test_non_alpha_passthrough(self):
+        assert ws.decode_school_code("12:34 — !?") == "12:34 — !?"
+
+    def test_accents_pass_through(self):
+        # Accented chars aren't A-Z, so they're never transformed.
+        assert ws.decode_school_code("é à ç ’") == "é à ç ’"
+
+    def test_pure_function(self):
+        s = "Mhllw"
+        ws.decode_school_code(s)
+        assert s == "Mhllw"
+
+
+class TestInboxBodyKey:
+    def test_is_64_hex(self):
+        soup = ws.BeautifulSoup(_inbox_html("Hello."), "html.parser")
+        (_, body_ps), = ws._inbox_message_cards(soup)
+        key = ws._inbox_body_key(body_ps)
+        assert len(key) == 64 and all(c in "0123456789abcdef" for c in key)
+
+    def test_whitespace_normalized_same_key(self):
+        a = ws.BeautifulSoup(_inbox_html("La  porte\n est   ouverte."),
+                             "html.parser")
+        b = ws.BeautifulSoup(_inbox_html("La porte est ouverte."), "html.parser")
+        ka = ws._inbox_body_key(list(ws._inbox_message_cards(a))[0][1])
+        kb = ws._inbox_body_key(list(ws._inbox_message_cards(b))[0][1])
+        assert ka == kb
+
+    def test_different_bodies_differ(self):
+        a = ws.BeautifulSoup(_inbox_html("one"), "html.parser")
+        b = ws.BeautifulSoup(_inbox_html("two"), "html.parser")
+        ka = ws._inbox_body_key(list(ws._inbox_message_cards(a))[0][1])
+        kb = ws._inbox_body_key(list(ws._inbox_message_cards(b))[0][1])
+        assert ka != kb
+
+
+class TestInboxMessageCards:
+    def test_finds_all_cards(self):
+        soup = ws.BeautifulSoup(_inbox_html("a", "b", "c"), "html.parser")
+        assert len(list(ws._inbox_message_cards(soup))) == 3
+
+    def test_body_excludes_headers(self):
+        soup = ws.BeautifulSoup(_inbox_html(INBOX_CIPHER_BODY), "html.parser")
+        (_, body_ps), = ws._inbox_message_cards(soup)
+        text = " ".join(p.get_text() for p in body_ps)
+        assert INBOX_CIPHER_BODY in text
+        assert "The Architect" not in text  # sender header excluded
+        assert "dimanche" not in text       # date header excluded
+
+    def test_card_without_body_skipped(self):
+        # A primary-bg group whose only <p> are nested (no direct-child body).
+        html = ('<html><body><div class="wp-block-group '
+                'has-primary-background-color"><div class="wp-block-columns">'
+                '<div class="wp-block-column"><p>header only</p></div>'
+                '</div></div></body></html>')
+        soup = ws.BeautifulSoup(html, "html.parser")
+        assert list(ws._inbox_message_cards(soup)) == []
+
+
+class TestReadTxMessages:
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert ws._read_tx_messages(str(tmp_path / "nope.json")) == {}
+
+    def test_reads_messages(self, tmp_path):
+        f = tmp_path / "tx.json"
+        f.write_text(json.dumps({"version": 1,
+                                 "messages": {"abc": {"en": "hi",
+                                                      "is_cipher": True}}}))
+        assert ws._read_tx_messages(str(f)) == {
+            "abc": {"en": "hi", "is_cipher": True}}
+
+    def test_malformed_returns_empty(self, tmp_path):
+        f = tmp_path / "bad.json"
+        f.write_text("{ not json ")
+        assert ws._read_tx_messages(str(f)) == {}
+
+
+class TestLoadInboxTranslationsMerge:
+    def _reset(self):
+        ws._inbox_tx_cache["key"] = None
+        ws._inbox_tx_cache["messages"] = {}
+
+    def test_curated_overrides_machine(self, tmp_path):
+        self._reset()
+        cur, mac = tmp_path / "curated.json", tmp_path / "machine.json"
+        cur.write_text(json.dumps({"messages": {
+            "k1": {"en": "human", "is_cipher": False}}}))
+        mac.write_text(json.dumps({"messages": {
+            "k1": {"en": "robot", "is_cipher": False, "mt": True},
+            "k2": {"en": "auto", "is_cipher": True, "mt": True}}}))
+        out = ws.load_inbox_translations(str(cur), str(mac))
+        assert out["k1"]["en"] == "human"      # curated overrides machine
+        assert out["k2"]["en"] == "auto"       # machine-only entry kept
+
+    def test_both_missing_returns_empty(self, tmp_path):
+        self._reset()
+        assert ws.load_inbox_translations(
+            str(tmp_path / "a.json"), str(tmp_path / "b.json")) == {}
+
+
+class TestEnParagraphs:
+    def test_escapes_html(self):
+        out = ws._en_paragraphs("a <b> & c")
+        assert "&lt;b&gt;" in out and "&amp;" in out
+        assert "<b>" not in out
+
+    def test_single_block(self):
+        assert ws._en_paragraphs("Hello.") == "<p>Hello.</p>"
+
+    def test_newline_becomes_br(self):
+        assert ws._en_paragraphs("a\nb") == "<p>a<br/>b</p>"
+
+    def test_blank_line_double_br(self):
+        # One <p>; a blank line becomes <br/><br/>, mirroring source <br><br>.
+        assert ws._en_paragraphs("one\n\ntwo") == "<p>one<br/><br/>two</p>"
+
+
+class TestDecodedParagraphHtml:
+    def test_decodes_text_keeps_markup(self):
+        out = ws._decoded_paragraph_html(
+            ws.BeautifulSoup('<p class="x">Lf pwkyh</p>',
+                             "html.parser").p)
+        assert 'class="x"' in out          # attribute preserved
+        assert "La porte" in out           # text decoded
+        assert "Lf pwkyh" not in out
+
+
+class TestInjectInboxToggles:
+    def _inject_single(self, body, spec):
+        html = _inbox_html(body)
+        tx = _tx_for(html, [spec])
+        out = ws._inject_inbox_toggles(html, tx)
+        return out, ws.BeautifulSoup(out, "html.parser")
+
+    def test_cipher_three_modes_default_ci(self):
+        out, soup = self._inject_single(
+            INBOX_CIPHER_BODY,
+            {"is_cipher": True, "en": INBOX_CIPHER_EN})
+        msg = soup.select_one(".wb-msg")
+        assert msg.select(".wb-v-ci") and msg.select(".wb-v-fr") \
+            and msg.select(".wb-v-en")
+        checked = [r for r in msg.select(".wb-msg-radio") if r.has_attr("checked")]
+        assert len(checked) == 1 and "wb-r-ci" in checked[0]["class"]
+        assert INBOX_CIPHER_BODY in msg.select_one(".wb-v-ci").get_text()
+        assert INBOX_CIPHER_FR in msg.select_one(".wb-v-fr").get_text()
+        assert INBOX_CIPHER_EN in msg.select_one(".wb-v-en").get_text()
+
+    def test_plain_two_modes_default_fr(self):
+        out, soup = self._inject_single(
+            INBOX_PLAIN_BODY,
+            {"is_cipher": False, "en": INBOX_PLAIN_EN})
+        msg = soup.select_one(".wb-msg")
+        assert not msg.select(".wb-v-ci")          # no cipher mode
+        assert msg.select(".wb-v-fr") and msg.select(".wb-v-en")
+        checked = [r for r in msg.select(".wb-msg-radio") if r.has_attr("checked")]
+        assert len(checked) == 1 and "wb-r-fr" in checked[0]["class"]
+        # FR of a plain message is the unchanged original (no decode).
+        assert INBOX_PLAIN_BODY in msg.select_one(".wb-v-fr").get_text()
+
+    def test_no_translation_entry_untouched(self):
+        html = _inbox_html(INBOX_CIPHER_BODY)
+        out = ws._inject_inbox_toggles(html, _tx_for(html, [None]))
+        assert "wb-msg" not in out
+        assert INBOX_CIPHER_BODY in out            # original survives
+
+    def test_empty_en_degrades(self):
+        out, soup = self._inject_single(
+            INBOX_CIPHER_BODY, {"is_cipher": True, "en": ""})
+        assert not soup.select(".wb-msg")
+
+    def test_empty_translations_unchanged(self):
+        html = _inbox_html(INBOX_CIPHER_BODY, INBOX_PLAIN_BODY)
+        assert ws._inject_inbox_toggles(html, {}) == html
+
+    def test_no_javascript_added(self):
+        out, _ = self._inject_single(
+            INBOX_CIPHER_BODY, {"is_cipher": True, "en": INBOX_CIPHER_EN})
+        low = out.lower()
+        assert "<script" not in low
+        assert "onclick" not in low and "addeventlistener" not in low
+
+    def test_style_injected_once_for_many_cards(self):
+        html = _inbox_html(INBOX_CIPHER_BODY, INBOX_PLAIN_BODY, "Salut.")
+        tx = _tx_for(html, [
+            {"is_cipher": True, "en": INBOX_CIPHER_EN},
+            {"is_cipher": False, "en": INBOX_PLAIN_EN},
+            {"is_cipher": False, "en": "Hi."},
+        ])
+        out = ws._inject_inbox_toggles(html, tx)
+        assert out.count(".wb-msg-variant { display: none") == 1
+        assert ws.BeautifulSoup(out, "html.parser").select(".wb-msg")
+
+    def test_mixed_only_translated_injected(self):
+        html = _inbox_html(INBOX_CIPHER_BODY, INBOX_PLAIN_BODY)
+        # Only the first card has a translation.
+        tx = _tx_for(html, [{"is_cipher": True, "en": INBOX_CIPHER_EN}, None])
+        out = ws._inject_inbox_toggles(html, tx)
+        assert out.count('class="wb-msg"') == 1
+        assert INBOX_PLAIN_BODY in out             # untranslated card untouched
+
+    def test_en_inherits_body_paragraph_class(self):
+        # EN <p> must copy the original body <p>'s theme classes, else it
+        # renders unstyled (white-on-white on the message bubble).
+        out, soup = self._inject_single(
+            INBOX_CIPHER_BODY, {"is_cipher": True, "en": INBOX_CIPHER_EN})
+        en_p = soup.select_one(".wb-v-en p")
+        assert en_p is not None
+        assert "wp-block-paragraph" in en_p.get("class", [])

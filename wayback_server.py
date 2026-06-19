@@ -19,6 +19,7 @@ import hashlib
 import threading
 import subprocess
 import html
+from html import escape as _html_escape
 import sqlite3
 import time
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -34,6 +35,214 @@ import crawler_config as cfg
 sys.stdout.reconfigure(encoding="utf-8")
 
 INTERNAL_HOSTS = {cfg.SITE_DOMAIN, f"www.{cfg.SITE_DOMAIN}"}
+
+
+# ─── School-Code cipher (The Architect's "code du lycée") ────────────────────
+# Monoalphabetic substitution used in the /inbox/ ARG thread. Decoding turns the
+# on-page ciphertext into (French) plaintext. Letters only — digits, punctuation
+# and accents pass through unchanged. Mirrors the standalone school-code-
+# translator skill so the server has no runtime dependency on it.
+_SCHOOL_PLAIN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_SCHOOL_KEY = "MINDFAGEBJRLHCVPQSKYUWOXTZ"
+_SCHOOL_DECODE = str.maketrans(
+    _SCHOOL_PLAIN + _SCHOOL_PLAIN.lower(),
+    _SCHOOL_KEY + _SCHOOL_KEY.lower(),
+)
+
+
+def decode_school_code(text: str) -> str:
+    """Decode School-Code ciphertext to (French) plaintext. NOT safe on
+    plaintext — applying it to non-ciphered text corrupts it, which is why the
+    inbox feature gates decoding on a precomputed is_cipher flag."""
+    return text.translate(_SCHOOL_DECODE)
+
+
+# ─── Inbox message helpers ───────────────────────────────────────────────────
+# The /inbox/ page is a Ghost<->Architect thread. Each message is a "card"; the
+# message BODY is the set of <p> elements that are DIRECT children of the card
+# group. Sender/date headers live nested inside an inner wp-block-columns block,
+# so direct-child <p> selection excludes them — important, because the cipher is
+# only ever in the body, never the headers.
+INBOX_PATH = "/inbox/"
+INBOX_CARD_SELECTOR = "div.wp-block-group.has-primary-background-color"
+
+
+def _inbox_message_cards(soup):
+    """Yield (card, body_paragraphs) for each inbox message card that has a
+    body. Cards with no direct-child <p> are skipped."""
+    for card in soup.select(INBOX_CARD_SELECTOR):
+        body_ps = card.find_all("p", recursive=False)
+        if body_ps:
+            yield card, body_ps
+
+
+def _inbox_body_text(body_ps) -> str:
+    """Canonical, whitespace-normalized body text. Used as the translation key
+    so it stays stable across HTML re-serialization."""
+    text = " ".join(p.get_text(" ", strip=True) for p in body_ps)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _inbox_body_key(body_ps) -> str:
+    """SHA-256 of the canonical body text — the per-message translation key.
+    Content-addressed: identical message bodies across snapshots share a key,
+    so one translation entry covers every snapshot that contains the message."""
+    return hashlib.sha256(_inbox_body_text(body_ps).encode("utf-8")).hexdigest()
+
+
+# Translation sidecars, merged at serve time:
+#   • curated seed  — data/inbox_translations.json  (committed, human-authored,
+#     deploys via git; authoritative).
+#   • machine cache — web_mirror/translations/inbox_auto.json  (written by
+#     inbox_translator.py on the VPS, rsync'd, NOT in git; unreviewed drafts).
+# Curated wins on key collision. Both are optional; missing -> {} -> no toggles.
+# Self-heals on mtime change of either file, like the manifest cache.
+INBOX_CURATED_PATH = os.path.join(cfg.WORKSPACE_DIR, "data",
+                                  "inbox_translations.json")
+INBOX_MACHINE_PATH = os.path.join(cfg.MIRROR_DIR, "translations",
+                                  "inbox_auto.json")
+_inbox_tx_cache = {"key": None, "messages": {}}
+_inbox_tx_lock = threading.Lock()
+
+
+def _mtime_or_none(path: str):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+def _read_tx_messages(path: str) -> dict:
+    """Read one sidecar file's messages dict ({} if missing or malformed)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("messages", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def load_inbox_translations(curated_path: str = INBOX_CURATED_PATH,
+                            machine_path: str = INBOX_MACHINE_PATH) -> dict:
+    """Return {body_key: {"is_cipher": bool, "en": str, ...}}, merging the
+    curated seed over the machine cache (curated wins)."""
+    key = (_mtime_or_none(curated_path), _mtime_or_none(machine_path))
+    cache = _inbox_tx_cache
+    if cache["key"] != key:
+        with _inbox_tx_lock:
+            if cache["key"] != key:                      # re-check under lock
+                merged = _read_tx_messages(machine_path)
+                merged.update(_read_tx_messages(curated_path))  # curated wins
+                cache["messages"] = merged
+                cache["key"] = key
+    return cache["messages"]
+
+
+# CSS-only toggle: hidden radios + :checked sibling combinator drive which body
+# variant shows and which pill segment is highlighted. No JavaScript — fully
+# functional (and keyboard-navigable) without it, per the no-JS server rule.
+_INBOX_CSS = """\
+.wb-msg { position: relative; }
+.wb-msg-radio { position: absolute; left: -9999px; width: 1px; height: 1px;
+  opacity: 0; }
+.wb-pill { position: absolute; top: 6px; right: 6px; display: inline-flex;
+  border: 1px solid rgba(255,255,255,0.28); border-radius: 4px; overflow: hidden;
+  font-family: 'IBM Plex Mono','Courier New',monospace; font-size: 11px;
+  line-height: 1; z-index: 3; user-select: none; }
+.wb-pill-seg { padding: 3px 7px; cursor: pointer; color: #cbd5e1;
+  background: rgba(0,0,0,0.30); letter-spacing: 0.04em; }
+.wb-pill-seg + .wb-pill-seg { border-left: 1px solid rgba(255,255,255,0.18); }
+.wb-msg-variant { display: none; }
+.wb-r-ci:checked ~ .wb-v-ci,
+.wb-r-fr:checked ~ .wb-v-fr,
+.wb-r-en:checked ~ .wb-v-en { display: block; }
+.wb-r-ci:checked ~ .wb-pill .wb-pill-seg[for$="-ci"],
+.wb-r-fr:checked ~ .wb-pill .wb-pill-seg[for$="-fr"],
+.wb-r-en:checked ~ .wb-pill .wb-pill-seg[for$="-en"] {
+  background: #7dd3fc; color: #0d0d0d; font-weight: 600; }
+.wb-msg-radio:focus-visible ~ .wb-pill {
+  outline: 2px solid #7dd3fc; outline-offset: 2px; }
+"""
+
+
+def _decoded_paragraph_html(p) -> str:
+    """Return the <p>'s HTML with its text nodes School-Code-decoded, leaving
+    tags and attributes untouched."""
+    frag = BeautifulSoup(str(p), "html.parser")
+    for node in list(frag.find_all(string=True)):
+        node.replace_with(decode_school_code(str(node)))
+    return str(frag)
+
+
+def _en_paragraphs(text: str, p_class: str = "") -> str:
+    """Render the English translation inside a single <p> (matching the source
+    message markup), turning newlines into <br> so its line/paragraph breaks
+    mirror the original CI/FR layout — a blank line becomes <br><br>. `p_class`
+    copies the body paragraph's classes so the text inherits the same theme
+    colors (otherwise it renders unstyled — e.g. white on the message bubble)."""
+    attr = f' class="{_html_escape(p_class)}"' if p_class else ""
+    lines = [_html_escape(ln.strip()) for ln in text.strip("\n").split("\n")]
+    return f"<p{attr}>" + "<br/>".join(lines) + "</p>"
+
+
+def _build_inbox_block(group: str, is_cipher: bool,
+                       ci_html: str, fr_html: str, en_html: str) -> str:
+    """Build one CSS-only toggle block: radios, then the pill, then the body
+    variants (order matters — the :checked ~ sibling rules need the pill and
+    variants to follow the radios)."""
+    if is_cipher:
+        modes = [("ci", "CI", ci_html), ("fr", "FR", fr_html), ("en", "EN", en_html)]
+        default = "ci"
+    else:
+        modes = [("fr", "FR", fr_html), ("en", "EN", en_html)]
+        default = "fr"
+    radios, pills, variants = [], [], []
+    for code, label, content in modes:
+        rid = f"{group}-{code}"
+        checked = " checked" if code == default else ""
+        radios.append(f'<input type="radio" class="wb-msg-radio wb-r-{code}" '
+                      f'name="{group}" id="{rid}"{checked}>')
+        pills.append(f'<label class="wb-pill-seg" for="{rid}">{label}</label>')
+        variants.append(f'<div class="wb-msg-variant wb-v-{code}">{content}</div>')
+    return ('<div class="wb-msg">'
+            + "".join(radios)
+            + '<div class="wb-pill">' + "".join(pills) + '</div>'
+            + "".join(variants)
+            + '</div>')
+
+
+def _inject_inbox_toggles(html: str, translations: dict) -> str:
+    """Replace each inbox message body with a CI/FR/EN (or FR/EN) CSS toggle.
+    Cipher messages start in CI (the ciphertext); plain messages start in FR —
+    so the default render is exactly what the page showed before. Messages with
+    no translation entry are left untouched (graceful degrade)."""
+    if not translations:
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    injected = 0
+    for idx, (card, body_ps) in enumerate(_inbox_message_cards(soup)):
+        entry = translations.get(_inbox_body_key(body_ps))
+        if not entry or not entry.get("en"):
+            continue
+        is_cipher = bool(entry.get("is_cipher"))
+        ci_html = "".join(str(p) for p in body_ps)
+        fr_html = ("".join(_decoded_paragraph_html(p) for p in body_ps)
+                   if is_cipher else ci_html)
+        body_class = " ".join(body_ps[0].get("class", []))
+        en_html = _en_paragraphs(entry["en"], body_class)
+        block_html = _build_inbox_block(f"wbmsg{idx}", is_cipher,
+                                        ci_html, fr_html, en_html)
+        block = BeautifulSoup(block_html, "html.parser").div
+        body_ps[0].insert_before(block)
+        for p in body_ps:
+            p.extract()
+        injected += 1
+    if not injected:
+        return html
+    head = soup.find("head")
+    style = soup.new_tag("style")
+    style.string = _INBOX_CSS
+    (head or soup).append(style)
+    return str(soup)
 
 
 # ─── Access Log ──────────────────────────────────────────────────────────────
@@ -1476,6 +1685,12 @@ class WaybackHandler(BaseHTTPRequestHandler):
         html = rewrite_internal_links(
             html, date, self.manifests.get_asset_by_path(date)
         )
+
+        # On the /inbox/ ARG thread, add a per-message CI/FR/EN toggle (decode
+        # the School-Code ciphertext + show the English translation). Serve-time
+        # only — the stored snapshot stays a faithful mirror.
+        if page_path == INBOX_PATH:
+            html = _inject_inbox_toggles(html, load_inbox_translations())
 
         # Compute page status from changes for the header badge.
         changes = self.manifests.get_changes(date)

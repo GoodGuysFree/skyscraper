@@ -1,0 +1,9 @@
+# Inbox auto-translator (inbox_translator.py) — runs from cron on the VPS.
+# NOT needed by the wayback server itself; install into the shared prod venv
+# alongside the crawler/server deps.
+#
+#   pip install -r deploy/requirements-translator.txt
+#
+# The optional LLM fallback (OpenRouter) uses only the stdlib (urllib), so it
+# adds no dependency here.
+deep-translator==1.11.4
