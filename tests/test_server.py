@@ -1146,6 +1146,31 @@ class TestComputeStats:
         # avg over engaged (>0) sessions only → 100s, not 100/4
         assert stats["avg_duration"] == 100
 
+    def test_today_is_calendar_day_not_rolling_24h(self, tmp_path):
+        # Regression: "Today" must be the current UTC calendar day (matching the
+        # Daily Trend), NOT a rolling 24h window that straddles two dates and
+        # double-counts distinct IPs.
+        conn = _fresh_db(tmp_path)
+        now = time.time()
+        utc = time.gmtime(now)
+        today_start = int(now) - (utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec)
+        ins = "INSERT INTO access_log(ts,ip,path,status,bytes) VALUES(?,?,?,?,?)"
+        conn.execute(ins, (now, "10.0.0.1", "/a/", 200, 1))            # today
+        conn.execute(ins, (now, "10.0.0.2", "/b/", 200, 1))            # today
+        conn.execute(ins, (today_start - 3600, "10.0.0.9", "/c/", 200, 1))  # yesterday, <24h ago
+        conn.commit()
+        stats = ws._compute_stats(conn)
+        s = stats["summary"]
+        # Calendar-day "today" excludes the yesterday IP (a rolling window wouldn't).
+        assert s["unique_ips_today"] == 2
+        assert s["total_today"] == 2
+        # And it equals today's row in the Daily Trend.
+        today_date = time.strftime("%Y-%m-%d", time.gmtime(now))
+        today_row = [r for r in stats["daily"] if r[0] == today_date]
+        assert today_row and today_row[0][2] == s["unique_ips_today"]
+        # The yesterday IP is still counted in the rolling 7-day week.
+        assert s["unique_ips_week"] == 3
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 13. _build_stats_html

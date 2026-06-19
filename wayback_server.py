@@ -347,14 +347,21 @@ def _compute_stats(conn: sqlite3.Connection) -> dict:
     """Compute stats dict from a SQLite connection (read-only safe)."""
     now = time.time()
     DAY, WEEK = 86_400, 7 * 86_400
+    # Start of the current UTC day. "Today" is the calendar day — matching the
+    # Daily Trend, which groups by UTC date — NOT a rolling 24h window. A rolling
+    # window straddles two calendar dates and inflates the distinct-IP count
+    # (the bug where "Unique IPs Today" was ~the sum of two trend rows). Bound by
+    # timestamp (not date(ts)) so the ts index still applies.
+    utc = time.gmtime(now)
+    today_start = int(now) - (utc.tm_hour * 3600 + utc.tm_min * 60 + utc.tm_sec)
 
     def scalar(sql, *args):
         r = conn.execute(sql, args).fetchone()
         return (r[0] or 0) if r else 0
 
     summary = {
-        "total_today":       scalar("SELECT COUNT(*) FROM access_log WHERE ts>?", now - DAY),
-        "unique_ips_today":  scalar("SELECT COUNT(DISTINCT ip) FROM access_log WHERE ts>?", now - DAY),
+        "total_today":       scalar("SELECT COUNT(*) FROM access_log WHERE ts>=?", today_start),
+        "unique_ips_today":  scalar("SELECT COUNT(DISTINCT ip) FROM access_log WHERE ts>=?", today_start),
         "total_week":        scalar("SELECT COUNT(*) FROM access_log WHERE ts>?", now - WEEK),
         "unique_ips_week":   scalar("SELECT COUNT(DISTINCT ip) FROM access_log WHERE ts>?", now - WEEK),
         "total_all":         scalar("SELECT COUNT(*) FROM access_log"),
