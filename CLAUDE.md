@@ -18,11 +18,12 @@ docs are where environment-specific and access-revealing details live.
 
 ## What this is
 
-Two cooperating programs that together form a local "wayback machine" for `project-skyscraper.com`:
+Three cooperating programs that together form a local "wayback machine" for `project-skyscraper.com`:
 
 - **`site_crawler.py`** — Playwright/Firefox headless crawler. Scrapes the live site, sanitizes tracking, rewrites asset URLs to content-addressed paths, writes dated snapshots under `web_mirror/snapshots/<YYYY-MM-DD>/`.
 - **`wayback_server.py`** — Stdlib `ThreadingHTTPServer`. Serves the archive with `/@<date>/<path>` routing, a floating nav overlay, and a manifest cache that self-heals on new snapshots without restart.
-- **`crawler_config.py`** — Single shared config for both programs. All tunable knobs live here.
+- **`inbox_translator.py`** — Standalone cron maintenance program (NOT part of the crawler or server). Drafts English for new `/inbox/` School-Code messages (French→English) into a git-ignored machine-cache sidecar under `web_mirror/translations/`; the server merges it under the committed curated seed `data/inbox_translations.json` (curated wins). Skips while a crawl runs; single-instance via `flock`. deep-translator primary, optional OpenRouter LLM fallback.
+- **`crawler_config.py`** — Single shared config for all three programs. All tunable knobs live here.
 
 All persistent data lives under `web_mirror/`. The server only needs `web_mirror/` to run; the crawler writes into it.
 
@@ -121,7 +122,7 @@ OPERATIONS.md        # same
 *.local.md           # any local-only ops docs
 ```
 
-Commit: `site_crawler.py`, `wayback_server.py`, `crawler_config.py`, `deploy/`, `CLAUDE.md`, `TODO.md`, `.gitignore`.
+Commit: `site_crawler.py`, `wayback_server.py`, `inbox_translator.py`, `crawler_config.py`, `deploy/`, `data/`, `CLAUDE.md`, `TODO.md`, `.gitignore`.
 
 ---
 
