@@ -104,13 +104,66 @@ Controlled by `GATE_MODE` in `crawler_config.py`:
 
 ---
 
+## Mirroring more than one site
+
+The crawler and server are site-agnostic; everything site-specific lives in
+`crawler_config.py` as the **default profile** (the primary site). A second site is
+run as a **separate instance of the same code** — no fork — by pointing the
+`WB_SITE_CONFIG` environment variable at a small **profile module** that overrides
+only the knobs that differ.
+
+A profile is a plain Python file that redefines any of the uppercase config names.
+See [`sites/recalldreams.py`](sites/recalldreams.py) for a complete example. Typical
+overrides:
+
+```python
+# sites/yoursite.py
+SITE_DOMAIN  = "example.org"          # SITE_ORIGIN / SITEMAP_URL re-derive from this
+SERVER_PORT  = 8071                   # second instance → second port
+SITE_TITLE   = "Example Archive"      # chrome branding
+GATE_MODE    = "password"             # or "button"
+PROTECTED_PAGES = {}                  # per-site password-gated pages
+HAS_INBOX    = False                  # site-specific features off by default
+EXPOSE_STATS = False                  # record access but hide the stats UI
+# theme: SITE_BG_IMAGE, SITE_ACCENT, ... ; canonical-noise patterns; cross-link; etc.
+```
+
+Anything the profile doesn't set is inherited from `crawler_config.py`. When
+`WB_SITE_CONFIG` is unset, the primary site runs exactly as before.
+
+**Each instance is fully isolated** via its own `SKYSCRAPER_HOME` — its own
+`web_mirror/` (snapshots + blob store), its own `.env`, its own `stats.db`. The two
+instances share only the code checkout and the virtualenv.
+
+```bash
+# one-time: create the data dir + its own gate secrets (never committed)
+mkdir -p /srv/example/web_mirror
+printf 'ARCHIVE_PASSWORD=...\nTRIGGER_TOKEN=...\n' > /srv/example/.env
+
+# crawl the second site
+SKYSCRAPER_HOME=/srv/example WB_SITE_CONFIG="$(pwd)/sites/yoursite.py" \
+  .venv/bin/python site_crawler.py
+
+# serve the second site on its own port
+SKYSCRAPER_HOME=/srv/example WB_SITE_CONFIG="$(pwd)/sites/yoursite.py" \
+  .venv/bin/python wayback_server.py --host 0.0.0.0 --port 8071
+```
+
+Each instance reads its `ARCHIVE_PASSWORD` / `TRIGGER_TOKEN` from
+`$SKYSCRAPER_HOME/.env` — **passwords and tokens never live in the repo or in a
+profile module.** Run a separate cron entry per site (each with its own
+`SKYSCRAPER_HOME` + `WB_SITE_CONFIG`), and put a reverse proxy in front that routes
+each hostname to the right port (name-based virtual hosting — one IP, many sites).
+
+---
+
 ## Running tests
 
 ```bash
 python3 -m pytest tests/ -v
 ```
 
-92 tests, fully offline (no network, no browser). Run before committing changes and before deploying.
+297 tests, fully offline (no network, no browser). Run before committing changes and before deploying.
 
 ---
 
