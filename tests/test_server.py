@@ -964,6 +964,23 @@ def test_scheduler_multiple_triggers_while_running_only_one_queued():
     assert sched._queued is True  # still just True, not a counter
 
 
+def test_scheduler_crawl_uses_code_dir_not_data_dir(tmp_path, monkeypatch):
+    """The api-trigger crawl must locate site_crawler.py in CODE_DIR, not in
+    WORKSPACE_DIR. For a second instance the data dir has no code, so using
+    WORKSPACE_DIR would spawn a non-existent script (the recalldreams bug)."""
+    import os as _os
+    monkeypatch.setattr(_cfg, "WORKSPACE_DIR", str(tmp_path))   # data-only dir
+    sched = CrawlScheduler()
+    with patch("wayback_server.subprocess.run") as mrun, \
+         patch("wayback_server.time.sleep"), \
+         patch("builtins.open", MagicMock()):
+        sched._run()
+    cmd = mrun.call_args[0][0]
+    assert cmd[1] == _os.path.join(_cfg.CODE_DIR, "site_crawler.py")
+    assert str(tmp_path) not in cmd[1]
+    assert mrun.call_args.kwargs["cwd"] == _cfg.CODE_DIR
+
+
 def test_scheduler_no_timer_started_while_running():
     sched = CrawlScheduler()
     sched._running = True

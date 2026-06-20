@@ -71,9 +71,16 @@ PROTECTED_PAGES = {
 # overridden with the SKYSCRAPER_HOME environment variable. web_mirror/ is
 # expected to live directly under WORKSPACE_DIR.
 
+# CODE_DIR is where the programs live (this file + site_crawler.py +
+# wayback_server.py). It is ALWAYS the directory of this module, independent of
+# SKYSCRAPER_HOME. For a second instance, SKYSCRAPER_HOME points at a separate
+# data tree while CODE_DIR stays on the shared checkout — so the server can still
+# find site_crawler.py to spawn the api-trigger crawl.
+CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 WORKSPACE_DIR = os.environ.get(
     "SKYSCRAPER_HOME",
-    os.path.dirname(os.path.abspath(__file__)),
+    CODE_DIR,
 )
 MIRROR_DIR = os.path.join(WORKSPACE_DIR, "web_mirror")
 BLOB_DIR = os.path.join(MIRROR_DIR, "_assets")       # content-addressed store

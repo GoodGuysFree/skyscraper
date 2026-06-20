@@ -679,10 +679,10 @@ class CrawlScheduler:
         try:
             with open(log_path, "a") as log:
                 subprocess.run(
-                    [sys.executable, os.path.join(cfg.WORKSPACE_DIR, "site_crawler.py"),
+                    [sys.executable, os.path.join(cfg.CODE_DIR, "site_crawler.py"),
                      "--trigger", "api"],
                     stdout=log, stderr=log,
-                    cwd=cfg.WORKSPACE_DIR,
+                    cwd=cfg.CODE_DIR,
                     env=os.environ,
                 )
         except Exception as e:
