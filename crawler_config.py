@@ -235,6 +235,16 @@ CANONICAL_REPLACE_PATTERNS = [
     # real message lives in data-word. Strip the shuffled text, keep the tag so
     # data-word changes are still detected as real content changes.
     (r'(<a\b[^>]*\bclass="[^"]*\bscramble-text\b[^"]*"[^>]*>)[^<]*(</a>)', r'\1\2'),
+    # WordPress core block-library inline CSS (<style id="wp-block-*-inline-css">)
+    # is regenerated verbatim on every page whenever WordPress.com bumps its core
+    # / Gutenberg version (e.g. ":where([style*=border-color])" became
+    # ":where([style^=border-color],[style*=";border-color"],...)"). It is pure
+    # plumbing — identical across all pages, no site content — so a core update
+    # would otherwise flag the ENTIRE site as modified with no visible change.
+    # Strip these blocks from the canonical hash only; the stored blob keeps them.
+    # global-styles / core-block-supports are intentionally NOT stripped — those
+    # can carry real design/content changes.
+    (r'<style id="wp-block-[^"]*-inline-css"[^>]*>.*?</style>', ''),
 ]
 
 # ── Trigger-Crawl Webhook ─────────────────────────────────────────────────────

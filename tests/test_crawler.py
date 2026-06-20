@@ -448,6 +448,40 @@ class TestProtectedSeedUrls:
         assert cfg.PROTECTED_PAGES.get("/recon-protocol/") == "vector_cmdr"
 
 
+class TestCanonicalHashWpBlockCss:
+    """WordPress core block-library inline CSS must not affect canonical_hash —
+    it churns site-wide on WP version bumps with no visible change."""
+
+    BASE = (
+        '<html><head>'
+        '<style id="wp-block-library-inline-css">{css}</style>'
+        '<style id="global-styles-inline-css">.g{{color:red}}</style>'
+        '</head><body><p>Real content</p></body></html>'
+    )
+
+    def test_block_library_css_change_ignored(self):
+        a = self.BASE.format(css='html :where([style*=border-color]){border-style:solid}')
+        b = self.BASE.format(css='html :where([style^=border-color],[style*=";border-color"]){border-style:solid}')
+        assert a != b
+        assert sc.canonical_hash(a) == sc.canonical_hash(b)
+
+    def test_per_block_css_also_stripped(self):
+        tpl = ('<head><style id="wp-block-spacer-inline-css">{c}</style></head>'
+               '<body>x</body>')
+        assert sc.canonical_hash(tpl.format(c="a{b:1}")) == sc.canonical_hash(tpl.format(c="a{b:2}"))
+
+    def test_global_styles_change_still_detected(self):
+        # A real design change in global-styles must NOT be stripped.
+        a = self.BASE.format(css="x{y:1}").replace('.g{color:red}', '.g{color:red}')
+        b = self.BASE.format(css="x{y:1}").replace('.g{color:red}', '.g{color:blue}')
+        assert sc.canonical_hash(a) != sc.canonical_hash(b)
+
+    def test_real_body_change_still_detected(self):
+        a = self.BASE.format(css="x{y:1}")
+        b = a.replace("Real content", "DIFFERENT content")
+        assert sc.canonical_hash(a) != sc.canonical_hash(b)
+
+
 class TestSiteProfileOverlay:
     """WB_SITE_CONFIG overlays a second site's knobs onto crawler_config.
 
