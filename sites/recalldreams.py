@@ -37,6 +37,14 @@ SITE_ABOUT = (
 CROSS_SITE_URL = "https://archive.goodguysfree.com/"
 CROSS_SITE_LABEL = "↪ Enter the System archive — project-skyscraper.com"
 
+# ── Theme — match bg2.jpg (dark near-black with a teal-green network mesh) ────
+SITE_BG_IMAGE = "/_static/bg2.jpg"
+SITE_ACCENT = "#7fd6b4"            # pale teal-green (the mesh lines)
+SITE_ACCENT_HOVER = "#a9ead0"
+SITE_ACCENT_DIM = "#5f9e84"        # muted teal (cross-link)
+SITE_ACCENT_DIM_HOVER = "#8fc7ad"
+SITE_BAR_FILL = "#2f9f78"          # teal-green bars
+
 # ── Feature flags ────────────────────────────────────────────────────────────
 HAS_INBOX = False           # no /inbox/ School-Code thread on the Tower
 EXPOSE_STATS = False        # record access, but hide the stats UI until go-live

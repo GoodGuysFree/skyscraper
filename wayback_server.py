@@ -525,13 +525,13 @@ def _build_stats_html(stats: dict) -> str:
                  margin-bottom: 3px; }}
     .hbar-label {{ width: 2rem; color: #555; font-size: 0.75rem; text-align: right; }}
     .hbar-track {{ flex: 1; background: #1a1a1a; height: 14px; }}
-    .hbar-fill {{ background: #2563eb; height: 100%; }}
+    .hbar-fill {{ background: {cfg.SITE_BAR_FILL}; height: 100%; }}
     .hbar-cnt {{ width: 3rem; color: #555; font-size: 0.75rem; }}
     .sessions-line {{ color: #888; margin-top: 0.5rem; }}
     .utc-note {{ color: #3a3a3a; font-size: 0.7rem; margin-top: 0.3rem; }}
-    .back-link {{ display: inline-block; color: #7dd3fc; text-decoration: none;
+    .back-link {{ display: inline-block; color: {cfg.SITE_ACCENT}; text-decoration: none;
                   font-size: 0.8rem; letter-spacing: 0.08em; margin-bottom: 1.25rem; }}
-    .back-link:hover {{ color: #bae6fd; }}
+    .back-link:hover {{ color: {cfg.SITE_ACCENT_HOVER}; }}
   </style>
 </head>
 <body>
@@ -744,7 +744,7 @@ def _build_landing_page(error: str = "", latest_date: str = "",
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
-      background: #0d0d0d url('/_static/bg.jpg') center center / cover no-repeat fixed;
+      background: #0d0d0d url('{cfg.SITE_BG_IMAGE}') center center / cover no-repeat fixed;
       color: #c8c8c8;
       font-family: 'IBM Plex Mono', 'Courier New', monospace;
       min-height: 100vh;
@@ -797,10 +797,10 @@ def _build_landing_page(error: str = "", latest_date: str = "",
     .error {{ color: #e05c5c; font-size: 0.82rem; margin-bottom: 0.75rem; }}
     .cross-link {{
       display: block; margin-top: 1rem; text-align: center;
-      color: #6a93b0; font-size: 0.78rem; letter-spacing: 0.06em;
+      color: {cfg.SITE_ACCENT_DIM}; font-size: 0.78rem; letter-spacing: 0.06em;
       text-decoration: none;
     }}
-    .cross-link:hover {{ color: #9ec3dc; text-decoration: underline; }}
+    .cross-link:hover {{ color: {cfg.SITE_ACCENT_DIM_HOVER}; text-decoration: underline; }}
     .footer {{ margin-top: 2rem; font-size: 0.68rem; color: #333; text-align: center; }}
   </style>
 </head>
@@ -1185,8 +1185,8 @@ def build_header_html(date: str, original_url: str,
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px; height: 26px; gap: 10px; box-sizing: border-box;
 }}
-#wb-topbar a {{ color: #7dd3fc; text-decoration: none; }}
-#wb-topbar a:hover {{ color: #bae6fd; }}
+#wb-topbar a {{ color: {cfg.SITE_ACCENT}; text-decoration: none; }}
+#wb-topbar a:hover {{ color: {cfg.SITE_ACCENT_HOVER}; }}
 #wb-topbar .wb-tb-left {{ display: flex; align-items: center; gap: 8px; }}
 #wb-topbar .wb-tb-mirror {{
   background: #1a1a1a; border: 1px solid #2a2a2a; color: #888;
@@ -1226,7 +1226,7 @@ def build_header_html(date: str, original_url: str,
   <div class="wb-tb-center">{old_html}{inbox_html}</div>
   <div class="wb-tb-right">
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
-    {'<a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>' if cfg.EXPOSE_STATS else ''}
+    {f'<a href="/~api/stats" style="color:{cfg.SITE_ACCENT};text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>' if cfg.EXPOSE_STATS else ''}
     {ggf_html}
   </div>
 </div>
@@ -1865,8 +1865,8 @@ body {{ background: #0d0d0d; color: #e0e0e0;
 h1 {{ font-size: 20px; color: #9ca3af; font-weight: normal; margin: 0 0 20px;
       letter-spacing: 0.1em; }}
 p {{ color: #555; font-size: 14px; line-height: 1.9; margin: 0 0 16px; }}
-a {{ color: #7dd3fc; text-decoration: none; }}
-a:hover {{ color: #bae6fd; }}
+a {{ color: {cfg.SITE_ACCENT}; text-decoration: none; }}
+a:hover {{ color: {cfg.SITE_ACCENT_HOVER}; }}
 .path {{ color: #2e2e2e; font-size: 11px; margin-top: 24px; word-break: break-all; }}
 </style>
 </head><body>
@@ -1998,7 +1998,7 @@ body {{ background: #111; color: #e0e0e0; font-family: 'IBM Plex Mono', monospac
 .box {{ text-align: center; max-width: 500px; }}
 h1 {{ font-size: 48px; margin: 0 0 16px; opacity: 0.6; }}
 p {{ color: #888; }}
-a {{ color: #7dd3fc; }}
+a {{ color: {cfg.SITE_ACCENT}; }}
 </style></head><body><div class="box">
 <h1>{code}</h1><p>{message}</p>
 <p><a href="/">← Back to latest snapshot</a></p>

@@ -29,6 +29,17 @@ SITE_ABOUT = (
 CROSS_SITE_URL = "https://recalldreams.goodguysfree.com/"
 CROSS_SITE_LABEL = "↪ Enter the Tower archive — recalldreams.dev"
 
+# ── Theme — gate background + chrome accent colors ───────────────────────────
+# System palette: blue accent over the bg.jpg skyline. A second instance overrides
+# these (e.g. the Tower's teal-green over bg2.jpg). SITE_BG_IMAGE is a /_static/
+# path served from the static/ dir next to wayback_server.py.
+SITE_BG_IMAGE = "/_static/bg.jpg"
+SITE_ACCENT = "#7dd3fc"            # primary links / accents
+SITE_ACCENT_HOVER = "#bae6fd"
+SITE_ACCENT_DIM = "#6a93b0"        # muted secondary (cross-link)
+SITE_ACCENT_DIM_HOVER = "#9ec3dc"
+SITE_BAR_FILL = "#2563eb"          # stats horizontal bars
+
 # ── Per-site feature flags ───────────────────────────────────────────────────
 # HAS_INBOX    — serve the /inbox/ School-Code translator feature (System only).
 # EXPOSE_STATS — show the SITE STATS header link + /~api/stats page. Access is

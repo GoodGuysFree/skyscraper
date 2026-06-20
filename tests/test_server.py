@@ -195,6 +195,31 @@ class TestSiteBranding:
         html = ws._build_landing_page()
         assert 'class="cross-link"' not in html
 
+    def test_landing_uses_site_bg_image(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "button")
+        monkeypatch.setattr(cfg, "SITE_BG_IMAGE", "/_static/bg2.jpg")
+        html = ws._build_landing_page()
+        assert "url('/_static/bg2.jpg')" in html
+        assert "bg.jpg" not in html
+
+    def test_landing_uses_themed_accent(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "button")
+        monkeypatch.setattr(cfg, "CROSS_SITE_URL", "https://x/")
+        monkeypatch.setattr(cfg, "CROSS_SITE_LABEL", "x")
+        monkeypatch.setattr(cfg, "SITE_ACCENT_DIM", "#5f9e84")
+        html = ws._build_landing_page()
+        assert "#5f9e84" in html
+
+    def test_header_uses_themed_accent(self, monkeypatch):
+        monkeypatch.setattr(cfg, "SITE_ACCENT", "#7fd6b4")
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
+        assert "#7fd6b4" in html
+
+    def test_stats_page_uses_themed_bar(self, monkeypatch):
+        monkeypatch.setattr(cfg, "SITE_BAR_FILL", "#2f9f78")
+        html = ws._build_stats_html(ws._compute_stats_empty())
+        assert "#2f9f78" in html
+
     def test_header_shows_stats_link_when_exposed(self, monkeypatch):
         monkeypatch.setattr(cfg, "EXPOSE_STATS", True)
         html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
