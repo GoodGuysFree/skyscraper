@@ -22,6 +22,9 @@ WorkingDirectory=/archive/skyscraper
 # WORKSPACE_DIR is auto-derived from the script location, but we set it
 # explicitly so the service is unambiguous regardless of how it's launched.
 Environment=SKYSCRAPER_HOME=/archive/skyscraper
+# Unbuffered stdout so request logs reach the journal live (systemd is not a tty,
+# so Python would otherwise block-buffer them).
+Environment=PYTHONUNBUFFERED=1
 
 # --- Primary: run with the project venv ---
 ExecStart=/archive/skyscraper/.venv/bin/python /archive/skyscraper/wayback_server.py --host 0.0.0.0 --port 8070

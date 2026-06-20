@@ -32,6 +32,9 @@ WorkingDirectory=/opt/skyscraper
 Environment=SKYSCRAPER_HOME=/opt/recalldreams
 # Per-site profile: overrides domain/branding/flags onto the shared config.
 Environment=WB_SITE_CONFIG=/opt/skyscraper/sites/recalldreams.py
+# Unbuffered stdout so request logs reach the journal live (systemd is not a tty,
+# so Python would otherwise block-buffer them).
+Environment=PYTHONUNBUFFERED=1
 
 # Bind loopback only; public access is via Caddy TLS on 443.
 ExecStart=/opt/skyscraper/.venv/bin/python /opt/skyscraper/wayback_server.py --host 127.0.0.1 --port 8071
