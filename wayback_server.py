@@ -1573,7 +1573,16 @@ class WaybackHandler(BaseHTTPRequestHandler):
     access_log: "AccessLog | None" = None  # set by main()
 
     def log_message(self, format, *args):
-        sys.stdout.write(f"  {args[0]}\n")
+        # args[0] is the request line. Non-HTTP probes (TLS handshakes, port
+        # scanners) make the stdlib treat raw bytes as the request line, so
+        # sanitize before printing: drop non-printable bytes (prevents terminal
+        # escape-sequence injection) and cap the length so a garbage flood can't
+        # spew megabytes into the console.
+        raw = str(args[0]) if args else (format % args if args else format)
+        safe = "".join(c if (c.isprintable() or c == " ") else "·" for c in raw)
+        if len(safe) > 200:
+            safe = safe[:200] + "…"
+        sys.stdout.write(f"  {safe}\n")
 
     # ── Gate helpers ─────────────────────────────────────────────────────────
 

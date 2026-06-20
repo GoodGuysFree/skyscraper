@@ -220,6 +220,41 @@ class TestSiteBranding:
         html = ws._build_stats_html(ws._compute_stats_empty())
         assert "#2f9f78" in html
 
+
+class TestLogMessageSanitize:
+    """log_message must not echo raw probe bytes (TLS/scan) to the console."""
+
+    def _log(self, fmt, *args):
+        import io, sys as _sys
+        h = ws.WaybackHandler.__new__(ws.WaybackHandler)
+        buf, old = io.StringIO(), _sys.stdout
+        _sys.stdout = buf
+        try:
+            h.log_message(fmt, *args)
+        finally:
+            _sys.stdout = old
+        return buf.getvalue()
+
+    def test_normal_request_line_passes_through(self):
+        out = self._log('"%s" %s %s', "GET / HTTP/1.1", "200", "123")
+        assert "GET / HTTP/1.1" in out
+
+    def test_binary_probe_is_sanitized(self):
+        garbage = "\x16\x03\x01\x00\xa5\x01http/1.1\x00\x1f"
+        out = self._log('"%s" %s %s', garbage, "400", "-")
+        assert "\x16" not in out and "\x03" not in out
+        assert "·" in out           # control bytes replaced
+        assert "http/1.1" in out    # printable parts kept
+
+    def test_long_line_is_capped(self):
+        out = self._log('"%s" %s %s', "A" * 500, "400", "-")
+        assert len(out) < 260
+        assert "…" in out
+
+    def test_no_args_does_not_crash(self):
+        out = self._log("plain message with no args")
+        assert "plain message with no args" in out
+
     def test_header_shows_stats_link_when_exposed(self, monkeypatch):
         monkeypatch.setattr(cfg, "EXPOSE_STATS", True)
         html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
