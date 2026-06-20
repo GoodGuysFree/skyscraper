@@ -267,6 +267,40 @@ class TestLogMessageSanitize:
         assert '/~api/stats' not in html
         assert "SITE STATS" not in html
 
+    def test_header_uses_chrome_bg(self, monkeypatch):
+        monkeypatch.setattr(cfg, "SITE_CHROME_BG", "rgba(6,20,18,0.94)")
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
+        assert "rgba(6,20,18,0.94)" in html
+
+    def test_picker_uses_chrome_panel_and_list_bg(self, monkeypatch, two_snapshot_cache):
+        monkeypatch.setattr(cfg, "SITE_PANEL_BG", "rgba(8,23,21,0.94)")
+        monkeypatch.setattr(cfg, "SITE_LIST_BG", "#08140f")
+        html = ws.build_overlay_html("2026-06-14T1137", two_snapshot_cache, None, "/")
+        assert "rgba(8,23,21,0.94)" in html
+        assert "#08140f" in html
+
+
+class TestNeutralizeWpcomLinks:
+    def test_create_site_button_made_inert(self):
+        html = ('<a class="button button-primary has-background" '
+                'href="https://wordpress.com/?ref=coming_soon">Start a website</a>')
+        out = ws._neutralize_wpcom_links(html)
+        assert 'href="#"' in out
+        assert "onclick=\"return false;\"" in out
+        assert "wordpress.com" not in out
+        assert "Start a website" in out          # text preserved
+        assert 'class="button button-primary has-background"' in out  # attrs kept
+
+    def test_subdomain_and_protocol_relative(self):
+        for href in ('https://wordpress.com/start', '//wordpress.com/x',
+                     'https://en.wordpress.com/y'):
+            out = ws._neutralize_wpcom_links(f'<a href="{href}">x</a>')
+            assert "wordpress.com" not in out and 'href="#"' in out
+
+    def test_other_links_untouched(self):
+        html = '<a href="https://recalldreams.dev/page/">keep</a>'
+        assert ws._neutralize_wpcom_links(html) == html
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 4.  build_header_html  — thin fixed top bar

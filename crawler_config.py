@@ -39,6 +39,12 @@ SITE_ACCENT_HOVER = "#bae6fd"
 SITE_ACCENT_DIM = "#6a93b0"        # muted secondary (cross-link)
 SITE_ACCENT_DIM_HOVER = "#9ec3dc"
 SITE_BAR_FILL = "#2563eb"          # stats horizontal bars
+# Chrome backgrounds — the fixed top bar + the snapshot picker panel/list. Kept
+# near-black for the primary site; a second instance can tint them toward its
+# theme (a subtle hue, not a bright fill).
+SITE_CHROME_BG = "rgba(8,8,8,0.93)"    # top header bar
+SITE_PANEL_BG = "rgba(10,10,10,0.93)"  # picker panel
+SITE_LIST_BG = "#0e0e0e"               # picker dropdown list
 
 # ── Per-site feature flags ───────────────────────────────────────────────────
 # HAS_INBOX    — serve the /inbox/ School-Code translator feature (System only).

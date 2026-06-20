@@ -534,7 +534,7 @@ class TestSiteProfileOverlay:
         assert d["sitemap"] == "https://recalldreams.dev/sitemap.xml"
         assert d["title"] == "RecallDreams (The Tower)"
         assert d["port"] == 8071
-        assert d["gate"] == "password"
+        assert d["gate"] == "button"
         assert d["inbox"] is False and d["stats"] is False
         assert d["protected"] == {}
 

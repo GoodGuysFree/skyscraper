@@ -1178,7 +1178,7 @@ def build_header_html(date: str, original_url: str,
 <style>
 #wb-topbar {{
   position: fixed; top: 0; left: 0; right: 0; z-index: 99998;
-  background: rgba(8,8,8,0.93); border-bottom: 1px solid #1e1e1e;
+  background: {cfg.SITE_CHROME_BG}; border-bottom: 1px solid #1e1e1e;
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   font-family: 'IBM Plex Mono', 'Courier New', monospace;
   font-size: 11px; color: #666;
@@ -1311,6 +1311,23 @@ def _neutralize_all_forms(html: str) -> str:
     return _FORM_TAG_RE.sub(fix, html)
 
 
+_WPCOM_LINK_RE = re.compile(
+    r'<a\b([^>]*?)\bhref\s*=\s*"(?:https?:)?//(?:[a-z0-9-]+\.)?wordpress\.com[^"]*"([^>]*)>',
+    re.IGNORECASE,
+)
+
+
+def _neutralize_wpcom_links(html: str) -> str:
+    """Make WordPress.com promo links inert — e.g. the 'Start a website' /
+    create-site button on a WP.com 'coming soon' page. The archive must never
+    send a visitor off to wordpress.com. Keeps the element + its visible text;
+    just disables the navigation (href -> '#', click suppressed)."""
+    def fix(m: re.Match) -> str:
+        return (f'<a{m.group(1)}href="#" onclick="return false;" '
+                f'title="Disabled in archive"{m.group(2)}>')
+    return _WPCOM_LINK_RE.sub(fix, html)
+
+
 def _inject_form_block(html: str) -> str:
     """Inject a 'Form disabled in archive' notice that intercepts submission of
     the inner Jetpack contact form (the ARG form behind the password gate)."""
@@ -1435,7 +1452,7 @@ def build_overlay_html(current_date: str, manifests,
   font-size: 12px; color: #e0e0e0; user-select: none;
 }}
 .wb-panel {{
-  background: rgba(10,10,10,0.93); border: 1px solid #333; border-radius: 6px;
+  background: {cfg.SITE_PANEL_BG}; border: 1px solid #333; border-radius: 6px;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 4px 24px rgba(0,0,0,0.65); padding: 8px 10px; min-width: 300px;
 }}
@@ -1462,7 +1479,7 @@ def build_overlay_html(current_date: str, manifests,
 .wb-caret {{ margin-left: auto; opacity: 0.4; font-size: 9px; padding-left: 4px; }}
 .wb-list {{
   display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
-  background: #0e0e0e; border: 1px solid #333; border-top: none;
+  background: {cfg.SITE_LIST_BG}; border: 1px solid #333; border-top: none;
   border-bottom-left-radius: 4px; border-bottom-right-radius: 4px;
   box-shadow: 0 10px 28px rgba(0,0,0,0.75);
   max-height: 230px; overflow-y: auto;
@@ -1829,6 +1846,11 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # Runs before any injection below, so our own synthetic forms are safe.
         if "<form" in html.lower():
             html = _neutralize_all_forms(html)
+
+        # Make WordPress.com promo links (e.g. the 'Start a website' create-site
+        # button on a WP.com coming-soon page) inert — no off-archive navigation.
+        if "wordpress.com" in html:
+            html = _neutralize_wpcom_links(html)
 
         # Add the 'Form disabled in archive' modal over the inner ARG form (UX on
         # top of the structural neutralization above).

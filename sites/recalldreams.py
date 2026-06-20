@@ -20,10 +20,8 @@ SITE_DOMAIN = "recalldreams.dev"
 SERVER_PORT = 8071          # second instance; behind Caddy vhost recalldreams.*
 
 # ── Front-page gate ──────────────────────────────────────────────────────────
-# Phase 1 (build/test): password-gated while we build. At go-live this flips to a
-# two-button splash (ENTER TOWER + Enter System). Password read from this
-# instance's own .env -> ARCHIVE_PASSWORD.
-GATE_MODE = "password"
+# Open access (no password) — click-through splash, same as the primary site.
+GATE_MODE = "button"
 
 # ── Branding (server chrome) ─────────────────────────────────────────────────
 SITE_TITLE = "RecallDreams (The Tower)"
@@ -44,6 +42,11 @@ SITE_ACCENT_HOVER = "#a9ead0"
 SITE_ACCENT_DIM = "#5f9e84"        # muted teal (cross-link)
 SITE_ACCENT_DIM_HOVER = "#8fc7ad"
 SITE_BAR_FILL = "#2f9f78"          # teal-green bars
+# Subtle teal/cyan tint on the chrome (top bar + picker), matching bg2.jpg —
+# a dark hue, not a bright fill.
+SITE_CHROME_BG = "rgba(6,20,18,0.94)"   # top header bar
+SITE_PANEL_BG = "rgba(8,23,21,0.94)"    # picker panel
+SITE_LIST_BG = "#08140f"                # picker dropdown list
 
 # ── Feature flags ────────────────────────────────────────────────────────────
 HAS_INBOX = False           # no /inbox/ School-Code thread on the Tower
