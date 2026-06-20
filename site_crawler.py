@@ -925,7 +925,7 @@ class SiteCrawler:
             print(f"  Delete {snapshot_dir} to re-crawl.")
             return
 
-        print(f"═══ Project Skyscraper Crawler — {today} ═══")
+        print(f"═══ {cfg.SITE_TITLE} Crawler — {today} ═══")
         print()
 
         manifest = {

@@ -150,6 +150,42 @@ class TestBuildLandingPage:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# 3b. Per-site branding + feature flags (multi-site: System vs Tower)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestSiteBranding:
+    def test_landing_uses_site_title(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "password")
+        monkeypatch.setattr(cfg, "SITE_TITLE", "RecallDreams (The Tower)")
+        monkeypatch.setattr(cfg, "SITE_TAGLINE", "Tower tagline here")
+        monkeypatch.setattr(cfg, "SITE_ABOUT", "Tower about blurb here.")
+        html = ws._build_landing_page()
+        assert "RecallDreams (The Tower)" in html
+        assert "Tower tagline here" in html
+        assert "Tower about blurb here." in html
+        # System-specific copy must not leak when the title is overridden.
+        assert "<h1>Project Skyscraper</h1>" not in html
+
+    def test_stats_page_uses_site_title(self, monkeypatch):
+        monkeypatch.setattr(cfg, "SITE_TITLE", "RecallDreams (The Tower)")
+        html = ws._build_stats_html(ws._compute_stats_empty())
+        assert "RecallDreams (The Tower)" in html
+        assert "Project Skyscraper" not in html
+
+    def test_header_shows_stats_link_when_exposed(self, monkeypatch):
+        monkeypatch.setattr(cfg, "EXPOSE_STATS", True)
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
+        assert '/~api/stats' in html
+        assert "SITE STATS" in html
+
+    def test_header_hides_stats_link_when_not_exposed(self, monkeypatch):
+        monkeypatch.setattr(cfg, "EXPOSE_STATS", False)
+        html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")
+        assert '/~api/stats' not in html
+        assert "SITE STATS" not in html
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # 4.  build_header_html  — thin fixed top bar
 # ══════════════════════════════════════════════════════════════════════════════
 

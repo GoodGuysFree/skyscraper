@@ -446,3 +446,73 @@ class TestProtectedSeedUrls:
 
     def test_recon_protocol_password_configured(self):
         assert cfg.PROTECTED_PAGES.get("/recon-protocol/") == "vector_cmdr"
+
+
+class TestSiteProfileOverlay:
+    """WB_SITE_CONFIG overlays a second site's knobs onto crawler_config.
+
+    Run in a subprocess so the import-time overlay can't mutate this process's
+    already-imported crawler_config (which the rest of the suite relies on).
+    """
+
+    PROFILE = str(REPO_ROOT / "sites" / "recalldreams.py")
+
+    def _load_with_profile(self, profile_path):
+        import subprocess, json
+        code = (
+            "import json, crawler_config as c; "
+            "print(json.dumps({"
+            "'domain': c.SITE_DOMAIN, 'origin': c.SITE_ORIGIN, "
+            "'sitemap': c.SITEMAP_URL, 'title': c.SITE_TITLE, "
+            "'port': c.SERVER_PORT, 'gate': c.GATE_MODE, "
+            "'inbox': c.HAS_INBOX, 'stats': c.EXPOSE_STATS, "
+            "'protected': c.PROTECTED_PAGES, "
+            "'assets': sorted(c.ASSET_DOMAINS), "
+            "'canon': len(c.CANONICAL_IGNORE_PATTERNS)}))"
+        )
+        env = dict(os.environ, WB_SITE_CONFIG=profile_path)
+        out = subprocess.check_output(
+            [sys.executable, "-c", code], cwd=str(REPO_ROOT), env=env)
+        return json.loads(out)
+
+    def test_default_profile_unchanged(self):
+        import subprocess, json
+        code = (
+            "import json, crawler_config as c; "
+            "print(json.dumps({'domain': c.SITE_DOMAIN, 'title': c.SITE_TITLE, "
+            "'port': c.SERVER_PORT, 'inbox': c.HAS_INBOX, "
+            "'stats': c.EXPOSE_STATS, 'protected': len(c.PROTECTED_PAGES)}))"
+        )
+        env = {k: v for k, v in os.environ.items() if k != "WB_SITE_CONFIG"}
+        out = subprocess.check_output(
+            [sys.executable, "-c", code], cwd=str(REPO_ROOT), env=env)
+        d = json.loads(out)
+        assert d["domain"] == "project-skyscraper.com"
+        assert d["title"] == "Project Skyscraper"
+        assert d["port"] == 8070
+        assert d["inbox"] is True and d["stats"] is True
+        assert d["protected"] == 3
+
+    def test_tower_profile_overrides(self):
+        d = self._load_with_profile(self.PROFILE)
+        assert d["domain"] == "recalldreams.dev"
+        assert d["origin"] == "https://recalldreams.dev"
+        assert d["sitemap"] == "https://recalldreams.dev/sitemap.xml"
+        assert d["title"] == "RecallDreams (The Tower)"
+        assert d["port"] == 8071
+        assert d["gate"] == "password"
+        assert d["inbox"] is False and d["stats"] is False
+        assert d["protected"] == {}
+
+    def test_tower_asset_domains_track_site(self):
+        d = self._load_with_profile(self.PROFILE)
+        assert "recalldreams.dev" in d["assets"]
+        assert "www.recalldreams.dev" in d["assets"]
+        # Old site origin must be gone; shared wp.com CDN must remain.
+        assert "project-skyscraper.com" not in d["assets"]
+        assert "i0.wp.com" in d["assets"]
+
+    def test_tower_starts_clean_quirk_slate(self):
+        d = self._load_with_profile(self.PROFILE)
+        # Only the generic WP/nonce strips, none of System's gimmick patterns.
+        assert d["canon"] == 4

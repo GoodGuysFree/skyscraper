@@ -491,7 +491,7 @@ def _build_stats_html(stats: dict) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Access Stats — Project Skyscraper</title>
+  <title>Access Stats — {cfg.SITE_TITLE}</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -536,7 +536,7 @@ def _build_stats_html(stats: dict) -> str:
 </head>
 <body>
   <a class="back-link" href="/" onclick="history.back();return false;">← Back</a>
-  <h1>ACCESS STATS — Project Skyscraper Wayback</h1>
+  <h1>ACCESS STATS — {cfg.SITE_TITLE} Wayback</h1>
 
   <h2>Today / This Week</h2>
   <div class="cards">
@@ -732,7 +732,7 @@ def _build_landing_page(error: str = "", latest_date: str = "",
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Project Skyscraper — Archive</title>
+  <title>{cfg.SITE_TITLE} — Archive</title>
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -793,15 +793,13 @@ def _build_landing_page(error: str = "", latest_date: str = "",
 <body>
 <div class="card">
   <div class="logo">GoodGuysFree Community</div>
-  <h1>Project Skyscraper</h1>
-  <div class="tagline">Wayback Archive — community-maintained preservation mirror</div>
+  <h1>{cfg.SITE_TITLE}</h1>
+  <div class="tagline">{cfg.SITE_TAGLINE}</div>
 
   <div class="section">
     <div class="section-label">About</div>
     <p>
-      This archive preserves snapshots of project-skyscraper.com, an ARG
-      (alternate reality game) created for the No Man's Sky community.
-      Pages are captured periodically so the record is never lost.
+      {cfg.SITE_ABOUT}
     </p>
   </div>
 
@@ -829,7 +827,7 @@ def _build_landing_page(error: str = "", latest_date: str = "",
 {gate_html}
   </div>
 </div>
-<div class="footer">Project Skyscraper Wayback Machine</div>
+<div class="footer">{cfg.SITE_TITLE} Wayback Machine</div>
 </body>
 </html>"""
 _ABS_URL_RE = re.compile(r"^https?://([^/]+)(/.*)?$", re.IGNORECASE)
@@ -1214,7 +1212,7 @@ def build_header_html(date: str, original_url: str,
   <div class="wb-tb-center">{old_html}{inbox_html}</div>
   <div class="wb-tb-right">
     {f'<button class="wb-diff-toggle" onclick="document.documentElement.classList.toggle(\'wb-diff-off\')" title="Toggle diff coloring on post links">diff</button>' if show_diff_toggle else ''}
-    <a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>
+    {'<a href="/~api/stats" style="color:#7dd3fc;text-decoration:none;font-size:0.85em;font-family:inherit;">SITE STATS</a>' if cfg.EXPOSE_STATS else ''}
     {ggf_html}
   </div>
 </div>
@@ -1754,7 +1752,7 @@ class WaybackHandler(BaseHTTPRequestHandler):
         # On the /inbox/ ARG thread, add a per-message CI/FR/EN toggle (decode
         # the School-Code ciphertext + show the English translation). Serve-time
         # only — the stored snapshot stays a faithful mirror.
-        if page_path == INBOX_PATH:
+        if cfg.HAS_INBOX and page_path == INBOX_PATH:
             html = _inject_inbox_toggles(html, load_inbox_translations())
 
         # Compute page status from changes for the header badge.
@@ -1953,6 +1951,11 @@ a:hover {{ color: #bae6fd; }}
             self._json_response({"status": "ok", "dates": len(self.manifests.dates)})
 
         elif path == "/~api/stats":
+            # Access is always recorded; the stats UI is gated per-site so a
+            # not-yet-launched instance keeps its numbers private.
+            if not cfg.EXPOSE_STATS:
+                self._error(404, "Stats not available")
+                return
             stats = (self.__class__.access_log.stats()
                      if self.__class__.access_log is not None
                      else _compute_stats_empty())
@@ -2023,12 +2026,12 @@ a {{ color: #7dd3fc; }}
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Project Skyscraper Wayback Server")
+    parser = argparse.ArgumentParser(description=f"{cfg.SITE_TITLE} Wayback Server")
     parser.add_argument("--port", type=int, default=cfg.SERVER_PORT)
     parser.add_argument("--host", default=cfg.SERVER_HOST)
     args = parser.parse_args()
 
-    print(f"═══ Project Skyscraper Wayback Machine ═══")
+    print(f"═══ {cfg.SITE_TITLE} Wayback Machine ═══")
     print()
 
     # Load gate password from .env

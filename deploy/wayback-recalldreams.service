@@ -1,0 +1,51 @@
+# systemd unit for the SECOND wayback server — recalldreams.dev ("The Tower").
+#
+# Runs the SAME code as the main wayback-server, with a per-site profile and its
+# own data tree. The two instances share the checkout + venv but nothing else.
+#
+# Install (as root, on the VPS):
+#   sudo cp deploy/wayback-recalldreams.service \
+#           /etc/systemd/system/wayback-recalldreams.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now wayback-recalldreams.service
+#
+# Prereqs on the VPS:
+#   - code + venv at /opt/skyscraper (shared with the main instance)
+#   - data dir /opt/recalldreams/  (own web_mirror/, .env, stats.db)
+#       sudo mkdir -p /opt/recalldreams/web_mirror
+#       sudo chown -R skyscraper:skyscraper /opt/recalldreams
+#   - /opt/recalldreams/.env with its OWN ARCHIVE_PASSWORD + TRIGGER_TOKEN
+#   - Caddy vhost recalldreams.goodguysfree.com -> 127.0.0.1:8071
+#     (see deploy/caddy-recalldreams.snippet)
+
+[Unit]
+Description=RecallDreams (The Tower) Wayback Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skyscraper
+Group=skyscraper
+WorkingDirectory=/opt/skyscraper
+# Data tree for THIS instance (own web_mirror/, .env, stats.db).
+Environment=SKYSCRAPER_HOME=/opt/recalldreams
+# Per-site profile: overrides domain/branding/flags onto the shared config.
+Environment=WB_SITE_CONFIG=/opt/skyscraper/sites/recalldreams.py
+
+# Bind loopback only; public access is via Caddy TLS on 443.
+ExecStart=/opt/skyscraper/.venv/bin/python /opt/skyscraper/wayback_server.py --host 127.0.0.1 --port 8071
+
+Restart=on-failure
+RestartSec=3
+
+# Light hardening (same posture as the main unit). The server reads the shared
+# code tree and reads+writes only its own data tree.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/recalldreams
+
+[Install]
+WantedBy=multi-user.target

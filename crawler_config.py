@@ -14,6 +14,24 @@ SITE_ORIGIN = f"https://{SITE_DOMAIN}"
 SITEMAP_URL = f"{SITE_ORIGIN}/sitemap.xml"
 PAGE_PASSWORD = "EMILY"
 
+# ── Archive branding (server chrome) ─────────────────────────────────────────
+# Site-coupled display strings. A second instance (see "Per-site profile" at the
+# bottom of this file) overrides these via its WB_SITE_CONFIG module.
+SITE_TITLE = "Project Skyscraper"
+SITE_TAGLINE = "Wayback Archive — community-maintained preservation mirror"
+SITE_ABOUT = (
+    "This archive preserves snapshots of project-skyscraper.com, an ARG "
+    "(alternate reality game) created for the No Man's Sky community. "
+    "Pages are captured periodically so the record is never lost."
+)
+
+# ── Per-site feature flags ───────────────────────────────────────────────────
+# HAS_INBOX    — serve the /inbox/ School-Code translator feature (System only).
+# EXPOSE_STATS — show the SITE STATS header link + /~api/stats page. Access is
+#                still RECORDED regardless; this only gates the public UI.
+HAS_INBOX = True
+EXPOSE_STATS = True
+
 # ── Password-protected pages ─────────────────────────────────────────────────
 # Pages behind a WordPress post-password gate whose content the crawler should
 # UNLOCK and capture (by submitting the password), so the archive holds the real
@@ -64,9 +82,9 @@ ASSET_URL_PREFIX = "/_assets"
 
 # ── Domains to Treat as "Internal" (download assets from these) ──────────────
 
-ASSET_DOMAINS = {
-    SITE_DOMAIN,
-    f"www.{SITE_DOMAIN}",
+# Shared CDN/avatar hosts — same for any WordPress.com-hosted site (System or
+# Tower). The per-site origin is added on top so the set tracks SITE_DOMAIN.
+_CDN_ASSET_DOMAINS = {
     "i0.wp.com",           # Jetpack Photon image CDN
     "i1.wp.com",
     "i2.wp.com",
@@ -80,6 +98,7 @@ ASSET_DOMAINS = {
     "1.gravatar.com",
     "2.gravatar.com",
 }
+ASSET_DOMAINS = {SITE_DOMAIN, f"www.{SITE_DOMAIN}"} | _CDN_ASSET_DOMAINS
 
 # ── Domains / URL patterns to BLOCK entirely ─────────────────────────────────
 
@@ -209,3 +228,36 @@ CANONICAL_REPLACE_PATTERNS = [
 TRIGGER_DEBOUNCE_SECONDS = 180
 # Cooldown: mandatory rest after a crawl finishes before a queued crawl may start.
 TRIGGER_COOLDOWN_SECONDS = 300
+
+# ── Per-site profile overlay ──────────────────────────────────────────────────
+# This project runs more than one wayback machine off ONE codebase. The defaults
+# above are the project-skyscraper "System" profile. A second instance (e.g. the
+# recalldreams "Tower") sets WB_SITE_CONFIG to a small module that redefines only
+# the site-coupled knobs — domain, branding, PROTECTED_PAGES, the canonical /
+# block / element lists, the HAS_INBOX / EXPOSE_STATS flags, GATE_MODE, etc.
+#
+# When WB_SITE_CONFIG is unset, nothing below runs and the main instance behaves
+# exactly as before. The profile only overrides UPPERCASE names that already
+# exist here, so it cannot introduce surprises — it starts from a clean inherit
+# of these defaults and replaces the few knobs it names.
+_SITE_PROFILE = os.environ.get("WB_SITE_CONFIG")
+if _SITE_PROFILE:
+    import importlib.util as _ilu
+
+    _spec = _ilu.spec_from_file_location("wb_site_profile", _SITE_PROFILE)
+    _mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+
+    _overridden = set()
+    for _name in dir(_mod):
+        if _name.isupper() and _name in globals():
+            globals()[_name] = getattr(_mod, _name)
+            _overridden.add(_name)
+
+    # Recompute derived values unless the profile set them explicitly.
+    if "SITE_DOMAIN" in _overridden and "SITE_ORIGIN" not in _overridden:
+        SITE_ORIGIN = f"https://{SITE_DOMAIN}"
+    if "SITE_DOMAIN" in _overridden and "SITEMAP_URL" not in _overridden:
+        SITEMAP_URL = f"{SITE_ORIGIN}/sitemap.xml"
+    if "SITE_DOMAIN" in _overridden and "ASSET_DOMAINS" not in _overridden:
+        ASSET_DOMAINS = {SITE_DOMAIN, f"www.{SITE_DOMAIN}"} | _CDN_ASSET_DOMAINS

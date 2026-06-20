@@ -1,0 +1,28 @@
+# Caddy vhost for the SECOND archive — recalldreams.dev ("The Tower").
+#
+# DNS: point recalldreams.goodguysfree.com at the SAME IP as
+# archive.goodguysfree.com (an A/AAAA record to the VPS). Caddy routes by the
+# Host header, so one IP serves both archives on separate vhosts.
+#
+# Append this block to the VPS Caddyfile (alongside the archive.goodguysfree.com
+# block), then reload:  sudo systemctl reload caddy
+#
+# The Tower server binds 127.0.0.1:8071 (see wayback-recalldreams.service); the
+# main archive stays on 8070. While the Tower is in its build/test phase it is
+# also gated by ARCHIVE_PASSWORD (GATE_MODE=password in sites/recalldreams.py),
+# so this vhost is doubly private until go-live.
+
+recalldreams.goodguysfree.com {
+	encode zstd gzip
+
+	# Reuse the same crawler rate-limit / UA-block posture as the main vhost.
+	# See deploy/caddy-ratelimit.snippet for the import/snippet definition.
+	# import crawler_guard
+
+	reverse_proxy 127.0.0.1:8071
+
+	log {
+		output file /var/log/caddy/recalldreams.access.log
+		format console
+	}
+}
