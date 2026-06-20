@@ -172,6 +172,29 @@ class TestSiteBranding:
         assert "RecallDreams (The Tower)" in html
         assert "Project Skyscraper" not in html
 
+    def test_landing_renders_cross_site_link(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "button")
+        monkeypatch.setattr(cfg, "CROSS_SITE_URL", "https://recalldreams.goodguysfree.com/")
+        monkeypatch.setattr(cfg, "CROSS_SITE_LABEL", "↪ Enter the Tower archive")
+        html = ws._build_landing_page()
+        assert 'class="cross-link"' in html
+        assert 'href="https://recalldreams.goodguysfree.com/"' in html
+        assert "Enter the Tower archive" in html
+
+    def test_landing_cross_link_present_with_password_gate(self, monkeypatch):
+        # Cross-link shows regardless of gate mode (it is below the gate button).
+        monkeypatch.setattr(cfg, "GATE_MODE", "password")
+        monkeypatch.setattr(cfg, "CROSS_SITE_URL", "https://archive.goodguysfree.com/")
+        monkeypatch.setattr(cfg, "CROSS_SITE_LABEL", "↪ Enter the System archive")
+        html = ws._build_landing_page()
+        assert 'href="https://archive.goodguysfree.com/"' in html
+
+    def test_landing_no_cross_link_when_unset(self, monkeypatch):
+        monkeypatch.setattr(cfg, "GATE_MODE", "button")
+        monkeypatch.setattr(cfg, "CROSS_SITE_URL", "")
+        html = ws._build_landing_page()
+        assert 'class="cross-link"' not in html
+
     def test_header_shows_stats_link_when_exposed(self, monkeypatch):
         monkeypatch.setattr(cfg, "EXPOSE_STATS", True)
         html = ws.build_header_html("2026-06-14T1137", "https://example.com/page/")

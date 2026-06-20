@@ -24,6 +24,10 @@ SITE_ABOUT = (
     "(alternate reality game) created for the No Man's Sky community. "
     "Pages are captured periodically so the record is never lost."
 )
+# Cross-link to the project's OTHER archive, shown as a plain link under the gate
+# button. Points at the other instance's front page (its own gate). Empty = hide.
+CROSS_SITE_URL = "https://recalldreams.goodguysfree.com/"
+CROSS_SITE_LABEL = "↪ Enter the Tower archive — recalldreams.dev"
 
 # ── Per-site feature flags ───────────────────────────────────────────────────
 # HAS_INBOX    — serve the /inbox/ School-Code translator feature (System only).

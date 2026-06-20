@@ -33,6 +33,9 @@ SITE_ABOUT = (
     "of the Project Skyscraper ARG (alternate reality game) for the No Man's Sky "
     "community. Pages are captured periodically so the record is never lost."
 )
+# Cross-link back to the primary ("System") archive's front page.
+CROSS_SITE_URL = "https://archive.goodguysfree.com/"
+CROSS_SITE_LABEL = "↪ Enter the System archive — project-skyscraper.com"
 
 # ── Feature flags ────────────────────────────────────────────────────────────
 HAS_INBOX = False           # no /inbox/ School-Code thread on the Tower

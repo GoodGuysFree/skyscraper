@@ -727,6 +727,14 @@ def _build_landing_page(error: str = "", latest_date: str = "",
         <button type="submit">Enter Archive</button>
       </form>"""
 
+    # Plain cross-link to the project's other archive (its own gate page).
+    cross_html = ""
+    if getattr(cfg, "CROSS_SITE_URL", ""):
+        cross_html = (
+            f'\n      <a class="cross-link" href="{cfg.CROSS_SITE_URL}">'
+            f'{cfg.CROSS_SITE_LABEL}</a>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -787,6 +795,12 @@ def _build_landing_page(error: str = "", latest_date: str = "",
     }}
     .enter-btn:hover {{ background: #222; border-color: #555; color: #eee; }}
     .error {{ color: #e05c5c; font-size: 0.82rem; margin-bottom: 0.75rem; }}
+    .cross-link {{
+      display: block; margin-top: 1rem; text-align: center;
+      color: #6a93b0; font-size: 0.78rem; letter-spacing: 0.06em;
+      text-decoration: none;
+    }}
+    .cross-link:hover {{ color: #9ec3dc; text-decoration: underline; }}
     .footer {{ margin-top: 2rem; font-size: 0.68rem; color: #333; text-align: center; }}
   </style>
 </head>
@@ -824,7 +838,7 @@ def _build_landing_page(error: str = "", latest_date: str = "",
   <hr>
 
   <div class="gate">
-{gate_html}
+{gate_html}{cross_html}
   </div>
 </div>
 <div class="footer">{cfg.SITE_TITLE} Wayback Machine</div>
