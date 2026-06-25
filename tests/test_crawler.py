@@ -448,6 +448,27 @@ class TestProtectedSeedUrls:
         assert cfg.PROTECTED_PAGES.get("/recon-protocol/") == "vector_cmdr"
 
 
+class TestInitialSeedUrls:
+    def test_homepage_always_seeded_even_if_absent_from_sitemap(self):
+        seeds = sc.initial_seed_urls(["https://project-skyscraper.com/about/"])
+        assert cfg.SITE_ORIGIN + "/" in seeds
+
+    def test_homepage_first(self):
+        seeds = sc.initial_seed_urls(["https://project-skyscraper.com/about/"])
+        assert seeds[0] == cfg.SITE_ORIGIN + "/"
+
+    def test_includes_sitemap_and_protected(self):
+        seeds = sc.initial_seed_urls(["https://project-skyscraper.com/about/"])
+        assert "https://project-skyscraper.com/about/" in seeds
+        for p in cfg.PROTECTED_PAGES:
+            assert cfg.SITE_ORIGIN + p in seeds
+
+    def test_deduplicated(self):
+        # homepage appearing in the sitemap too must not be seeded twice
+        seeds = sc.initial_seed_urls([cfg.SITE_ORIGIN + "/", cfg.SITE_ORIGIN + "/"])
+        assert seeds.count(cfg.SITE_ORIGIN + "/") == 1
+
+
 class TestCanonicalHashWpBlockCss:
     """WordPress core block-library inline CSS must not affect canonical_hash —
     it churns site-wide on WP version bumps with no visible change."""

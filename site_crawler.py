@@ -971,7 +971,7 @@ class SiteCrawler:
             pw_page = context.new_page()
             pw_page.on("response", self._on_response)
 
-            seed_urls = [e["url"] for e in pages] + protected_seed_urls()
+            seed_urls = initial_seed_urls([e["url"] for e in pages])
             self._crawl_loop(pw_page, seed_urls, manifest)
 
             # 3. Pick up sitemap-only images that no page referenced.
@@ -1095,6 +1095,19 @@ def protected_seed_urls() -> list[str]:
     AND unlinked (link-following never reaches them) are still captured — we
     already know their URL and password."""
     return [cfg.SITE_ORIGIN + path for path in cfg.PROTECTED_PAGES]
+
+
+def initial_seed_urls(sitemap_page_urls) -> list[str]:
+    """Seed list for a full crawl: the homepage ALWAYS, then sitemap pages, then
+    the known protected pages — de-duplicated, order preserved.
+
+    The homepage is seeded unconditionally because WordPress frequently omits it
+    from sitemap.xml, and the archive/category pages may carry no link back to it
+    (only wp-json / wp-login, which are filtered) — so link-following can't reach
+    it either. Without this the front page silently drops out of snapshots.
+    """
+    seeds = [cfg.SITE_ORIGIN + "/"] + list(sitemap_page_urls) + protected_seed_urls()
+    return list(dict.fromkeys(seeds))
 
 
 def main():
