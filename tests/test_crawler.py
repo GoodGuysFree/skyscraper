@@ -546,7 +546,7 @@ class TestSiteProfileOverlay:
         assert d["title"] == "Project Skyscraper"
         assert d["port"] == 8070
         assert d["inbox"] is True and d["stats"] is True
-        assert d["protected"] == 3
+        assert d["protected"] == 4
 
     def test_tower_profile_overrides(self):
         d = self._load_with_profile(self.PROFILE)

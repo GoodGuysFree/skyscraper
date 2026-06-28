@@ -37,3 +37,6 @@ docs/plans/trigger-crawl-ekimo.md
 # Deployment/operations docs with infra details — repo is PUBLIC.
 DEPLOYMENT.md
 OPERATIONS.md
+
+# Local data inventory — describes the VPS->galadriel mirror layout. Local only.
+LOCAL-README.md
